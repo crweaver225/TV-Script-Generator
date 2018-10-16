@@ -1,0 +1,1313 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# TV Script Generation\n",
+    "In this project, you'll generate your own [Simpsons](https://en.wikipedia.org/wiki/The_Simpsons) TV scripts using RNNs.  You'll be using part of the [Simpsons dataset](https://www.kaggle.com/wcukierski/the-simpsons-by-the-data) of scripts from 27 seasons.  The Neural Network you'll build will generate a new TV script for a scene at [Moe's Tavern](https://simpsonswiki.com/wiki/Moe's_Tavern).\n",
+    "## Get the Data\n",
+    "The data is already provided for you.  You'll be using a subset of the original dataset.  It consists of only the scenes in Moe's Tavern.  This doesn't include other versions of the tavern, like \"Moe's Cavern\", \"Flaming Moe's\", \"Uncle Moe's Family Feed-Bag\", etc.."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "import helper\n",
+    "\n",
+    "data_dir = './data/simpsons/moes_tavern_lines.txt'\n",
+    "text = helper.load_data(data_dir)\n",
+    "# Ignore notice, since we don't use it for analysing the data\n",
+    "text = text[81:]"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Explore the Data\n",
+    "Play around with `view_sentence_range` to view different parts of the data."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Dataset Stats\n",
+      "Roughly the number of unique words: 11492\n",
+      "Number of scenes: 262\n",
+      "Average number of sentences in each scene: 15.248091603053435\n",
+      "Number of lines: 4257\n",
+      "Average number of words in each line: 11.50434578341555\n",
+      "\n",
+      "The sentences 0 to 10:\n",
+      "Moe_Szyslak: (INTO PHONE) Moe's Tavern. Where the elite meet to drink.\n",
+      "Bart_Simpson: Eh, yeah, hello, is Mike there? Last name, Rotch.\n",
+      "Moe_Szyslak: (INTO PHONE) Hold on, I'll check. (TO BARFLIES) Mike Rotch. Mike Rotch. Hey, has anybody seen Mike Rotch, lately?\n",
+      "Moe_Szyslak: (INTO PHONE) Listen you little puke. One of these days I'm gonna catch you, and I'm gonna carve my name on your back with an ice pick.\n",
+      "Moe_Szyslak: What's the matter Homer? You're not your normal effervescent self.\n",
+      "Homer_Simpson: I got my problems, Moe. Give me another one.\n",
+      "Moe_Szyslak: Homer, hey, you should not drink to forget your problems.\n",
+      "Barney_Gumble: Yeah, you should only drink to enhance your social skills.\n",
+      "\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "view_sentence_range = (0, 10)\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "import numpy as np\n",
+    "\n",
+    "print('Dataset Stats')\n",
+    "print('Roughly the number of unique words: {}'.format(len({word: None for word in text.split()})))\n",
+    "scenes = text.split('\\n\\n')\n",
+    "print('Number of scenes: {}'.format(len(scenes)))\n",
+    "sentence_count_scene = [scene.count('\\n') for scene in scenes]\n",
+    "print('Average number of sentences in each scene: {}'.format(np.average(sentence_count_scene)))\n",
+    "\n",
+    "sentences = [sentence for scene in scenes for sentence in scene.split('\\n')]\n",
+    "print('Number of lines: {}'.format(len(sentences)))\n",
+    "word_count_sentence = [len(sentence.split()) for sentence in sentences]\n",
+    "print('Average number of words in each line: {}'.format(np.average(word_count_sentence)))\n",
+    "\n",
+    "print()\n",
+    "print('The sentences {} to {}:'.format(*view_sentence_range))\n",
+    "print('\\n'.join(text.split('\\n')[view_sentence_range[0]:view_sentence_range[1]]))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Implement Preprocessing Functions\n",
+    "The first thing to do to any dataset is preprocessing.  Implement the following preprocessing functions below:\n",
+    "- Lookup Table\n",
+    "- Tokenize Punctuation\n",
+    "\n",
+    "### Lookup Table\n",
+    "To create a word embedding, you first need to transform the words to ids.  In this function, create two dictionaries:\n",
+    "- Dictionary to go from the words to an id, we'll call `vocab_to_int`\n",
+    "- Dictionary to go from the id to word, we'll call `int_to_vocab`\n",
+    "\n",
+    "Return these dictionaries in the following tuple `(vocab_to_int, int_to_vocab)`"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "['moe_szyslak', \"moe's\", 'tavern', 'where', 'the', 'elite', 'meet', 'to', 'drink', 'bart_simpson', 'eh', 'yeah', 'hello', 'is', 'mike', 'there', 'last', 'name', 'rotch', 'moe_szyslak', 'hold', 'on', \"i'll\", 'check', 'mike', 'rotch', 'mike', 'rotch', 'hey', 'has', 'anybody', 'seen', 'mike', 'rotch', 'lately', 'moe_szyslak', 'listen', 'you', 'little', 'puke', 'one', 'of', 'these', 'days', \"i'm\", 'gonna', 'catch', 'you', 'and', \"i'm\", 'gonna', 'carve', 'my', 'name', 'on', 'your', 'back', 'with', 'an', 'ice', 'pick', 'moe_szyslak', 'whats', 'the', 'matter', 'homer', \"you're\", 'not', 'your', 'normal', 'effervescent', 'self', 'homer_simpson', 'i', 'got', 'my', 'problems', 'moe', 'give', 'me', 'another', 'one', 'moe_szyslak', 'homer', 'hey', 'you', 'should', 'not', 'drink', 'to', 'forget', 'your', 'problems', 'barney_gumble', 'yeah', 'you', 'should', 'only', 'drink', 'to', 'enhance', 'your', 'social', 'skills']\n",
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import problem_unittests as tests\n",
+    "from collections import Counter\n",
+    "\n",
+    "def create_lookup_tables(text):\n",
+    "    \"\"\"\n",
+    "    Create lookup tables for vocabulary\n",
+    "    :param text: The text of tv scripts split into words\n",
+    "    :return: A tuple of dicts (vocab_to_int, int_to_vocab)\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    print(text)\n",
+    "    counts = Counter(text)\n",
+    "    vocab = set(text)\n",
+    "    \n",
+    "    vocab_to_int = {word: ii for ii, word in enumerate(vocab, 0)}\n",
+    "    int_to_vocab = {ii: word for ii, word in enumerate(vocab, 0)}\n",
+    "    \n",
+    "  \n",
+    "    return vocab_to_int, int_to_vocab\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_create_lookup_tables(create_lookup_tables)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Tokenize Punctuation\n",
+    "We'll be splitting the script into a word array using spaces as delimiters.  However, punctuations like periods and exclamation marks make it hard for the neural network to distinguish between the word \"bye\" and \"bye!\".\n",
+    "\n",
+    "Implement the function `token_lookup` to return a dict that will be used to tokenize symbols like \"!\" into \"||Exclamation_Mark||\".  Create a dictionary for the following symbols where the symbol is the key and value is the token:\n",
+    "- Period ( . )\n",
+    "- Comma ( , )\n",
+    "- Quotation Mark ( \" )\n",
+    "- Semicolon ( ; )\n",
+    "- Exclamation mark ( ! )\n",
+    "- Question mark ( ? )\n",
+    "- Left Parentheses ( ( )\n",
+    "- Right Parentheses ( ) )\n",
+    "- Dash ( -- )\n",
+    "- Return ( \\n )\n",
+    "\n",
+    "This dictionary will be used to token the symbols and add the delimiter (space) around it.  This separates the symbols as it's own word, making it easier for the neural network to predict on the next word. Make sure you don't use a token that could be confused as a word. Instead of using the token \"dash\", try using something like \"||dash||\"."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def token_lookup():\n",
+    "    \"\"\"\n",
+    "    Generate a dict to turn punctuation into a token.\n",
+    "    :return: Tokenize dictionary where the key is the punctuation and the value is the token\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    \n",
+    "    tokenDic = {}\n",
+    "    tokenDic[\".\"] = '<PERIOD>'\n",
+    "    tokenDic[\",\"] = '<COMMA>'\n",
+    "    tokenDic['\"'] = '<QUOTATION_MARK>'\n",
+    "    tokenDic[';'] = '<SEMICOLON>'\n",
+    "    tokenDic['!'] = '<EXCLAMATION_MARK>'\n",
+    "    tokenDic['?'] = '<QUESTION_MARK>'\n",
+    "    tokenDic['('] = '<LEFT_PAREN>'\n",
+    "    tokenDic[')'] = '<RIGHT_PAREN>'\n",
+    "    tokenDic['--'] = '<HYPHENS>'\n",
+    "    tokenDic['?'] = '<QUESTION_MARK>'\n",
+    "    tokenDic['\\n'] = '<NEW_LINE>'\n",
+    "    \n",
+    "    return tokenDic\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_tokenize(token_lookup)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Preprocess all the data and save it\n",
+    "Running the code cell below will preprocess all the data and save it to file."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "{'comic_book_guy:': 0, 't-shirt': 1, 'talk-sings': 2, 'quite': 3, 'sacajawea': 4, 'overhearing': 5, 'walk': 6, \"tomorrow's\": 7, 'angel': 8, 'softer': 9, 'slice': 10, 'value': 11, 'reached': 12, 'entirely': 13, 'lisa_simpson:': 14, \"duelin'\": 15, 'swigmore': 16, 'mac-who': 17, 'angry': 18, 'notices': 19, 'rings': 20, 'involved': 21, 'website': 22, 'thighs': 23, \"lefty's\": 24, 'scum': 25, 'whenever': 26, 'applicant': 27, 'correction': 28, 'birth': 29, 'scully': 30, 'traitors': 31, 'horns': 32, 'son': 33, 'program': 34, 'english': 35, 'romance': 36, 'fulla': 37, 'toms': 38, 'stagy': 39, 'nervous': 40, 'doors': 41, 'macgregor': 42, 'chick': 43, 'disgraceful': 44, 'improved': 45, 'delivery_boy:': 46, 'sniffs': 47, \"'til\": 48, 'pickled': 49, 'perch': 50, 'show-off': 51, 'really': 52, 'madman': 53, 'jerky': 54, 'traffic': 55, 'characteristic': 56, 'polish': 57, 'cooler': 58, \"bettin'\": 59, 'cracked': 60, 'we-we-we': 61, 'woo-hoo': 62, 'imitating': 63, 'perfected': 64, 'taking': 65, 'shower': 66, '_burns_heads:': 67, 'sec_agent_#1:': 68, 'duff': 69, 'men:': 70, 'exact': 71, 'planned': 72, 'peeved': 73, 'chicken': 74, 'heard': 75, 'run': 76, 'rules': 77, 'lincoln': 78, \"mopin'\": 79, 'roy': 80, 'lying': 81, 'healthier': 82, 'edelbrock': 83, 'breathalyzer': 84, 'hillary': 85, 'college': 86, 'excuse': 87, 'answer': 88, 'seems': 89, 'spouses': 90, 'president': 91, 'foil': 92, 'comment': 93, 'sitting': 94, 'adjust': 95, 'yammering': 96, 'stomach': 97, 'beam': 98, 'fault': 99, 'general': 100, 'bears': 101, 'beat': 102, 'certificate': 103, 'employment': 104, 'busted': 105, 'thru': 106, 'clock': 107, 'wanna': 108, 'prize': 109, 'curse': 110, 'dignified': 111, 'casual': 112, 'microphone': 113, 'past': 114, 'blob': 115, 'bumbling': 116, 'snotball': 117, 'play/': 118, 'rosey': 119, 'legend': 120, 'pudgy': 121, 'yellow': 122, 'rap': 123, 'true': 124, 'hearing': 125, 'tale': 126, 'embarrassing': 127, 'pushes': 128, \"'now\": 129, 'tax': 130, 'elder': 131, \"heat's\": 132, 'newly-published': 133, 'pleased': 134, 'office': 135, 'raining': 136, 'bumpy-like': 137, 'fwooof': 138, 'cheat': 139, 'young': 140, 'whatever': 141, 'sense': 142, 'otherwise': 143, 'conference': 144, 'fortress': 145, 'turning': 146, 'clandestine': 147, 'estranged': 148, \"tonight's\": 149, 'bubble': 150, 'juan': 151, \"grandmother's\": 152, 'beast': 153, 'libido': 154, 'stayed': 155, 'saw': 156, \"battin'\": 157, 'selma_bouvier:': 158, 'oughta': 159, 'quietly': 160, 'jazz': 161, 'scratcher': 162, 'toe': 163, 'horribilis': 164, 'tapered': 165, 'partners': 166, 'gal': 167, 'mortal': 168, 'coney': 169, \"seein'\": 170, 'survive': 171, 'cheated': 172, 'government': 173, 'carefully': 174, 'male_inspector:': 175, 'bucks': 176, 'happily:': 177, 'aggravazes': 178, 'anniversary': 179, 'continued': 180, 'shrugging': 181, 'roof': 182, 'swelling': 183, 'app': 184, '100': 185, 'trip': 186, 'tasimeter': 187, 'limits': 188, 'maman': 189, \"ma'am\": 190, 'nose': 191, 'harv': 192, 'pussycat': 193, 'aerosmith': 194, 'attracted': 195, 'pas': 196, 'slap': 197, 'fatty': 198, 'doing': 199, 'suit': 200, 'dames': 201, 'tornado': 202, 'tomorrow': 203, 'forty': 204, 'conversations': 205, 'wolfcastle': 206, 'suicide': 207, 'shoe': 208, 'jewelry': 209, 'notice': 210, 'spite': 211, 'pond': 212, 'exasperated': 213, 'injury': 214, 'octa-': 215, 'methinks': 216, 'partly': 217, 'turn': 218, 'martini': 219, 'bless': 220, \"didn't\": 221, 'gags': 222, 'accept': 223, 'stationery': 224, 'twenty-five': 225, 'touched': 226, 'flashbacks': 227, 'beer': 228, 'johnny_carson:': 229, 'clean': 230, 'century': 231, 'sheets': 232, 'stay': 233, 'always': 234, 'scooter': 235, 'interrupting': 236, 'mole': 237, \"crawlin'\": 238, 'uh': 239, 'chic': 240, 'low': 241, 'color': 242, 'pronounce': 243, 'dennis_conroy:': 244, 'suits': 245, 'julienne': 246, '&': 247, 'sex': 248, 'proves': 249, 'social': 250, 'counterfeit': 251, 'lovelorn': 252, 'fixes': 253, 'such': 254, 'attend': 255, 'its': 256, 'spoon': 257, 'cries': 258, 'c': 259, 'heals': 260, 'score': 261, 'hunting': 262, 'words': 263, 'swimming': 264, 'combines': 265, 'lotta': 266, 'therapist': 267, 'sensitivity': 268, 'call': 269, 'mall': 270, 'bachelorhood': 271, 'shoot': 272, 'shop': 273, 'prime': 274, 'happiness': 275, 'matter-of-fact': 276, 'weapon': 277, 'last': 278, 'fustigation': 279, 'privacy': 280, 'humanity': 281, 'corkscrews': 282, \"maggie's\": 283, 'tire': 284, 'blinds': 285, 'foibles': 286, 'here-here-here': 287, 'dig': 288, 'voyager': 289, 'like': 290, 'nemo': 291, 'r': 292, 'judge': 293, 'red': 294, 'girls': 295, 'friends': 296, 'winded': 297, 'detective_homer_simpson:': 298, 'lotsa': 299, 'high': 300, 'reserved': 301, 'whoever': 302, 'big': 303, 'aboard': 304, 'simplest': 305, 'undies': 306, 'life-threatening': 307, 'th': 308, \"smokin'\": 309, 'gamble': 310, 'tourist': 311, 'neck': 312, 'joy': 313, 'eighteen': 314, 'ears': 315, 'hydrant': 316, 'telephone': 317, 'knuckle-dragging': 318, 'bonding': 319, \"aren'tcha\": 320, 'holidays': 321, 'tsking': 322, 'rabbits': 323, 'strokkur': 324, 'temples': 325, 'masks': 326, 'month': 327, 'grease': 328, 'badges': 329, 'fighting': 330, 'having': 331, 'fixed': 332, 'die-hard': 333, 'nitwit': 334, 'across': 335, 'expert': 336, 'kicked': 337, 'inside': 338, 'deliberately': 339, 'joint': 340, 'huhza': 341, 'dishonor': 342, 'whoo': 343, 'jams': 344, 'ocean': 345, 'pawed': 346, 'soul-crushing': 347, 'dear': 348, 'mansions': 349, 'inspiring': 350, \"ain't\": 351, 'he': 352, 'homeland': 353, 'satisfaction': 354, 'jane': 355, 'paris': 356, 'lucius': 357, 'tang': 358, 'david_byrne:': 359, 'simp-sonnnn': 360, 'larson': 361, 'nobody': 362, \"bein'\": 363, 'naegle': 364, 'partially': 365, 'mock-up': 366, 'do': 367, 'saying': 368, 'vampire': 369, 'blocked': 370, 'pretends': 371, 'tiny': 372, 'arms': 373, 'bragging': 374, 'theory': 375, 'talked': 376, '70': 377, 'grocery': 378, 'horrible': 379, 'pro': 380, 'philosophic': 381, 'p-k': 382, 'beaumont': 383, 'deeper': 384, 'bugs': 385, 'secret': 386, 'wanted': 387, 'ladder': 388, 'broadway': 389, 'fragile': 390, 'elmer': 391, 'screw': 392, 'blokes': 393, 'transylvania': 394, 'worldview': 395, \"game's\": 396, 'scruffy_blogger:': 397, 'parents': 398, 'slogan': 399, 'düffenbraus': 400, \"can'tcha\": 401, 'fierce': 402, 'has': 403, 'annus': 404, 'necklace': 405, \"ball's\": 406, 'disguised': 407, 'bar_rag:': 408, 'flophouse': 409, 'letters': 410, 'bad': 411, 'project': 412, 'reunion': 413, 'beef': 414, 'ointment': 415, 'amber_dempsey:': 416, 'tofu': 417, 'cranberry': 418, 'wave': 419, 'department': 420, 'oak': 421, 'cowardly': 422, 'surprised/thrilled': 423, 'way': 424, 'surprised': 425, 'pleading': 426, 'shirt': 427, 'gees': 428, 'dea-d-d-dead': 429, 'prohibit': 430, 'knew': 431, 'jig': 432, 'alfalfa': 433, 'snide': 434, 'reasons': 435, 'ahhhh': 436, 'golden': 437, 'turkey': 438, 'slow': 439, 'preparation': 440, \"soundin'\": 441, 'barney-guarding': 442, 'hmmmm': 443, \"'tis\": 444, 'theme': 445, 'suck': 446, 'sister-in-law': 447, 'serious': 448, 'holding': 449, 'al': 450, 'owns': 451, 'rug': 452, 'played': 453, 'thrown': 454, 'possibly': 455, 'brother': 456, 'novel': 457, 'work': 458, 'consciousness': 459, 'sleeping': 460, 'massachusetts': 461, 'whatsit': 462, 'nobel': 463, 'booger': 464, 'finale': 465, 'iddilies': 466, 'noise': 467, 'fifteen': 468, 'mayor': 469, 'flexible': 470, 'everywhere': 471, 'saved': 472, 'professor': 473, 'pig': 474, 'beep': 475, \"ya'\": 476, 'washer': 477, 'tear': 478, 'jail': 479, 'hostages': 480, 'fresco': 481, 'stamp': 482, 'reactions': 483, 'jogging': 484, 'mel': 485, 'grienke': 486, 'impeach': 487, 'brockman': 488, 'wife-swapping': 489, 'sassy': 490, 'button': 491, 'beauty': 492, 'distance': 493, 'passion': 494, 'begin': 495, 'guff': 496, 'law-abiding': 497, 'special': 498, \"lovers'\": 499, 'sued': 500, 'boggs': 501, 'shades': 502, 'sheet': 503, 'gil_gunderson:': 504, 'pyramid': 505, 'praise': 506, 'presidents': 507, 'attack': 508, 'truck': 509, 'wide': 510, 'weary': 511, 'pissed': 512, \"ragin'\": 513, 'freak': 514, 'mechanical': 515, 'teenage_bart:': 516, \"won't\": 517, \"can't-believe-how-bald-he-is\": 518, 'until': 519, 'mayor_joe_quimby:': 520, 'punching': 521, 'sports': 522, 'a': 523, 'popular': 524, 'take': 525, 'kyoto': 526, 'snort': 527, 'puke-pail': 528, 'montrer': 529, \"america's\": 530, 'column': 531, 'jockey': 532, 'w-a-3-q-i-zed': 533, 'model': 534, 'vanities': 535, 'nurse': 536, 'hustle': 537, 'grampa': 538, 'hey': 539, 'arguing': 540, 'moesy': 541, 'lloyd': 542, 'easier': 543, 'mm-hmm': 544, 'increased': 545, 'everything': 546, 'plenty': 547, 'fly': 548, 'harv:': 549, 'crawl': 550, 'aristotle:': 551, 'haw': 552, 'waitress': 553, 'throw': 554, 'seriously': 555, 'outside': 556, 'moans': 557, 'ring': 558, 'choking': 559, 'certainly': 560, 'assumed': 561, 'amazing': 562, 'cadillac': 563, 'engine': 564, 'stats': 565, 'plotz': 566, 'payback': 567, 'fumigated': 568, \"hole'\": 569, 'warmly': 570, 'managed': 571, 'wizard': 572, 'halvsies': 573, 'blind': 574, 'puffy': 575, \"people's\": 576, 'fictional': 577, 'loud': 578, 'venom': 579, 'quarter': 580, 'christopher': 581, 'distract': 582, 'training': 583, 'fellow': 584, 'der': 585, 'duff_announcer:': 586, 'temper': 587, 'frat': 588, 'inspire': 589, 'fair': 590, 'chilly': 591, 'both': 592, 'selfish': 593, 'intakes': 594, 'rocks': 595, 'sail': 596, 'wearing': 597, \"'er\": 598, 'chinese': 599, 'rafters': 600, 'enthusiasm': 601, 'courthouse': 602, 'movement': 603, \"'your\": 604, 'mcbain': 605, 'multi-purpose': 606, 'wreck': 607, 'adrift': 608, 'grope': 609, 'brown': 610, \"drinkin'\": 611, 'shove': 612, 'represent': 613, 'bedridden': 614, 'ceremony': 615, 'annual': 616, 'cab_driver:': 617, 'ignorance': 618, 'international': 619, 'thing': 620, 'ditched': 621, 'gardens': 622, 'kucinich': 623, 'conspiracy': 624, 'polenta': 625, 'position': 626, 'sponge:': 627, 'seymour_skinner:': 628, 'declare': 629, 'yard': 630, 'choke': 631, 'reward': 632, 'archaeologist': 633, 'tones': 634, 'safe': 635, 'best': 636, 'veteran': 637, 'administration': 638, 'open': 639, 'let': 640, 'astonishment': 641, 'lovers': 642, 'drunk': 643, 'restless': 644, 'afternoon': 645, 'believer': 646, 'catty': 647, 'william': 648, 'augustus': 649, 'friend:': 650, 'agreement': 651, 'massage': 652, 'and-and': 653, 'often': 654, 'soft': 655, 'mate': 656, 'nonchalantly': 657, 'fight': 658, \"c'mon\": 659, 'ne': 660, 'without:': 661, 'hour': 662, 'freaky': 663, 'sitcom': 664, 'landfill': 665, 'phasing': 666, 'school': 667, 'champ': 668, 'merchants': 669, 'disappeared': 670, 'cheese': 671, 'ivana': 672, 'ireland': 673, 'radiator': 674, 'photo': 675, 'her': 676, 'trust': 677, 'cheers': 678, 'aer': 679, 'punches': 680, 'reason': 681, 'doooown': 682, 'cletus_spuckler:': 683, 'got': 684, 'buddies': 685, 'op': 686, 'yogurt': 687, 'festival': 688, 'wantcha': 689, \"takin'\": 690, 'comedy': 691, 'mixed': 692, 'james': 693, 'beer-dorf': 694, '<right_paren>': 695, 'squeal': 696, 'examines': 697, 'churchill': 698, 'protecting': 699, 'lemonade': 700, 'lousy': 701, \"tryin'\": 702, 'dracula': 703, 'potato': 704, 'coyly': 705, 'baby': 706, 'sick': 707, 'greetings': 708, 'clown': 709, 'glamour': 710, 'video': 711, 'sighs': 712, 'youuu': 713, 'became': 714, 'lily-pond': 715, \"nick's\": 716, 'which': 717, 'internet': 718, 'darkness': 719, 'agents': 720, 'wrapped': 721, \"mecca's\": 722, 'insensitive': 723, 'renee:': 724, 'sangre': 725, 'elaborate': 726, 'obsessive-compulsive': 727, 'eventually': 728, 'omigod': 729, 'nap': 730, 'slaps': 731, 'prints': 732, 'newspaper': 733, \"somethin'\": 734, 'conversion': 735, 'background': 736, 'writers': 737, \"lenny's\": 738, 'vincent': 739, 'wish': 740, \"blowin'\": 741, 'lady_duff:': 742, 'lookalike': 743, 'settlement': 744, 'sadder': 745, 'nor': 746, 'rent': 747, 'dispenser': 748, 'shells': 749, 'moolah-stealing': 750, 'toasting': 751, 'mason': 752, 'the_rich_texan:': 753, 'bite': 754, 'k-zug': 755, 'encouraging': 756, 'chunky': 757, 'chili': 758, 'crayon': 759, 'reluctant': 760, 'fayed': 761, \"c'mom\": 762, 'jay': 763, 'm': 764, 'grandiose': 765, 'beaumarchais': 766, 'phlegm': 767, 'whatchacallit': 768, 'land': 769, 'andy': 770, 'crappy': 771, 'direction': 772, 'sturdy': 773, 'cup': 774, 'unable': 775, 'white': 776, \"that'd\": 777, 'stocking': 778, 'lovejoy': 779, 'carl:': 780, 'hammy': 781, 'feminist': 782, 'dreamed': 783, 'adopted': 784, 'damned': 785, 'directions': 786, 'passes': 787, 'cueball': 788, 'cruiser': 789, '<quotation_mark>': 790, 'dregs': 791, 'bubbles': 792, 'drift': 793, 'wife': 794, 'mug': 795, 'skeptical': 796, 'beings': 797, \"c'mere\": 798, 'ehhhhhhhh': 799, 'plan': 800, 'throats': 801, 'tasty': 802, 'invite': 803, 'payments': 804, 'alley': 805, 'noooooooooo': 806, 'finding': 807, 'changing': 808, 'stan': 809, 'sponge': 810, 'delightful': 811, 'stiffening': 812, 'least': 813, 'disappear': 814, 'dryer': 815, 'remembered': 816, 'action': 817, 'snitch': 818, 'texan': 819, 'ribbon': 820, 'born': 821, 'crippling': 822, \"s'cuse\": 823, 'jury': 824, 'mint': 825, '10:15': 826, 'klown': 827, 'burnside': 828, 'pictured': 829, 'fighter': 830, 'dropped': 831, 'superior': 832, 'paparazzo': 833, 'experience': 834, 'steak': 835, 'craphole': 836, 'partner': 837, \"cupid's\": 838, 'military': 839, 'scout': 840, 'darn': 841, 'ruled': 842, 'tail': 843, 'chair': 844, 'hats': 845, 'fills': 846, 'outlook': 847, \"it'll\": 848, 'fat_in_the_hat:': 849, 'chosen': 850, 'application': 851, 'appointment': 852, 'extract': 853, 'raising': 854, 'edison': 855, \"starla's\": 856, 'umm': 857, 'hug': 858, 'whose': 859, 'knives': 860, 'pancakes': 861, 'professor_jonathan_frink:': 862, 'washouts': 863, 'secrets': 864, 'attach': 865, 'corpses': 866, \"callin'\": 867, \"everyone's\": 868, 'cheaped': 869, 'alva': 870, 'bad-mouth': 871, 'illegally': 872, 'snake': 873, 'advertise': 874, \"enjoyin'\": 875, 'enhance': 876, 'supplying': 877, 'told': 878, 'enthused': 879, '7g': 880, 'enthusiastically': 881, 'impatient': 882, 'presentable': 883, 'nods': 884, 'ned': 885, 'duffman': 886, 'chub': 887, 'good': 888, 'practically': 889, 'calvin': 890, 'je': 891, 'star': 892, 'boo': 893, 'reaches': 894, 'effigy': 895, \"games'd\": 896, 'diaper': 897, 'kansas': 898, 'edna': 899, 'homie': 900, 'presto:': 901, 'liable': 902, 'olive': 903, 'incarcerated': 904, 'cleaning': 905, 'pressure': 906, 'ugly': 907, 'guns': 908, 'bottle': 909, 'buy': 910, 'frightened': 911, 'bird': 912, 'forced': 913, 'perfect': 914, 'voicemail': 915, 'keeps': 916, 'title': 917, 'the': 918, 'going': 919, 'brothers': 920, 'gumbo': 921, 'serve': 922, 'shares': 923, 'salvador': 924, 'fantastic': 925, 'art': 926, 'sympathy': 927, 'stepped': 928, 'biggest': 929, 'monorails': 930, 'considering:': 931, 'murderously': 932, 'trucks': 933, 'newsweek': 934, 'boxcar': 935, 'conversation': 936, 'refund': 937, \"man'd\": 938, 'splash': 939, 'hoagie': 940, 'feminine': 941, 'captain:': 942, 'information': 943, 'kent': 944, 'somewhere': 945, 'combine': 946, 'daaaaad': 947, '_zander:': 948, 'wa': 949, 'headhunters': 950, 'typed': 951, 'ineffective': 952, 'courts': 953, 'larry:': 954, 'dirty': 955, 'gotten': 956, 'pub': 957, 'center': 958, 'i-i': 959, 'modestly': 960, 'courteous': 961, 'omit': 962, 'ooh': 963, 'carl_carlson:': 964, 'evil': 965, 'allow': 966, 'mines': 967, 'catch': 968, 'cuz': 969, 'hank_williams_jr': 970, 'slight': 971, 'atlanta': 972, 'history': 973, 'nelson': 974, \"school's\": 975, 'scrutinizing': 976, 'chief_wiggum:': 977, 'gin': 978, 'inspired': 979, 'depressing': 980, 'bully': 981, '1979': 982, 'frontrunner': 983, \"havin'\": 984, 'hook': 985, 'sending': 986, 'electronic': 987, 'finest': 988, 'divine': 989, 'à': 990, 'screams': 991, \"larry's\": 992, 'squad': 993, 'fry': 994, 'break': 995, 'weight': 996, '/': 997, 'publishers': 998, 'pointless': 999, 'barney-type': 1000, 'j': 1001, 'or': 1002, 'compared': 1003, 'gallon': 1004, 'ninety-six': 1005, 'focused': 1006, 'slipped': 1007, 'avec': 1008, 'groan': 1009, 'fires': 1010, 'gunter': 1011, 'betty:': 1012, 'jernt': 1013, 'derek': 1014, 'delivery_man:': 1015, 'sandwich': 1016, 'acting': 1017, 'blood': 1018, 'imagine': 1019, 'looks': 1020, 'saucy': 1021, 'deal': 1022, 'dramatically': 1023, 'seas': 1024, 'designer': 1025, 'nothing': 1026, 'right-handed': 1027, 'flush': 1028, 'sweater': 1029, 'a-b-': 1030, 'children': 1031, 'juke': 1032, 'bras': 1033, 'pay': 1034, 'easily': 1035, 'dime': 1036, 'hopeful': 1037, 'fiction': 1038, 'clincher': 1039, 'hunger': 1040, 'lift': 1041, 'hiring': 1042, 'lowest': 1043, 'mountain': 1044, 'middle': 1045, 'listen': 1046, 'listens': 1047, 'ancestors': 1048, 'mind-numbing': 1049, 'sang': 1050, 'moe-heads': 1051, 'breaking': 1052, 'defiantly': 1053, 'universe': 1054, 'host': 1055, 'polishing': 1056, 'sideshow_mel:': 1057, 'mock': 1058, 'krabappel': 1059, 'gave': 1060, 'poke': 1061, 'morning-after': 1062, 'pile': 1063, 'flanders': 1064, 'kickoff': 1065, 'perón': 1066, 'walther_hotenhoffer:': 1067, 'outlive': 1068, 'seminar': 1069, 'bed': 1070, 'went': 1071, 'forget-me-shot': 1072, 'hidden': 1073, 'germany': 1074, 'cat': 1075, 'gargoyles': 1076, 'vegas': 1077, 'creepy': 1078, 'sen': 1079, '_eugene_blatz:': 1080, 'folks': 1081, 'savvy': 1082, 'brightening': 1083, 'cage': 1084, 'only': 1085, 'gentles': 1086, 'tight': 1087, 'panicky': 1088, 'mic': 1089, 'customer': 1090, 'disco_stu:': 1091, 'ruined': 1092, 'chinese_restaurateur:': 1093, 'deacon': 1094, 'crunch': 1095, 'kemi': 1096, 'pursue': 1097, \"nothin's\": 1098, 'line': 1099, 'comedies': 1100, 'manfred': 1101, 'coaster': 1102, 'whip': 1103, 'duke': 1104, 'enforced': 1105, 'keeping': 1106, 'skirt': 1107, 'bounced': 1108, 'tooth': 1109, 'ahhh': 1110, 'cosmetics': 1111, 'our': 1112, \"today's\": 1113, 'dessert': 1114, 'banks': 1115, \"cat's\": 1116, 'stools': 1117, 'dinks': 1118, 'rope': 1119, 'sorry': 1120, 'fustigate': 1121, 'weirder': 1122, \"fishin'\": 1123, 'taxes': 1124, 'notably': 1125, 'soul': 1126, 'gals': 1127, \"bart's\": 1128, 'fork': 1129, 'oughtta': 1130, 'smell': 1131, 'interesting': 1132, 'watch': 1133, \"santa's\": 1134, 'blood-thirsty': 1135, 'wrestling': 1136, 'indifferent': 1137, 'car': 1138, 'woman': 1139, 'usual': 1140, 'ball': 1141, 'blues': 1142, 'will': 1143, 'swear': 1144, 'milhouse_van_houten:': 1145, 'gives': 1146, '14': 1147, 'deadly': 1148, 'civic': 1149, 'switched': 1150, 'glad': 1151, 'winks': 1152, 'strains': 1153, 'tow-talitarian': 1154, 'ad': 1155, 'shipment': 1156, 'agh': 1157, 'jer': 1158, 'kramer': 1159, 'said': 1160, \"moe's_thoughts:\": 1161, 'asked': 1162, 'wounds': 1163, 'donut-shaped': 1164, 'chauffeur': 1165, 'closet': 1166, 'pian-ee': 1167, 'rich': 1168, \"when's\": 1169, 'suds': 1170, 'through': 1171, 'pee': 1172, 'applesauce': 1173, 'attractive_woman_#2:': 1174, 'betrayed': 1175, 'attention': 1176, 'approval': 1177, 'goodbye': 1178, 'debonair': 1179, 'onassis': 1180, 'lights': 1181, 'glove': 1182, 'nine': 1183, 'bridge': 1184, 'boat': 1185, 'encouraged': 1186, 'bushes': 1187, 'fatso': 1188, 'homer_simpson:': 1189, 'cozy': 1190, 'bus': 1191, 'singing/pushing': 1192, 'hers': 1193, 'korea': 1194, 'shutup': 1195, 'boxers': 1196, 'milhouses': 1197, 'hotenhoffer': 1198, 'layer': 1199, 'simpsons': 1200, 'cats': 1201, 'few': 1202, 'eye': 1203, 'brawled': 1204, 'frink': 1205, 'nearly': 1206, 'bitter': 1207, 'refiero': 1208, 'forty-seven': 1209, 'unsanitary': 1210, 'judgments': 1211, 'something:': 1212, 'brings': 1213, 'ails': 1214, 'who': 1215, \"she'll\": 1216, 'planning': 1217, 'renew': 1218, 'streetcorner': 1219, 'glitz': 1220, 'statue': 1221, 'machine': 1222, 'steel': 1223, 'minister': 1224, 'gel': 1225, 'bedtime': 1226, 'fruit': 1227, 'isotopes': 1228, 'bubbles-in-my-nose-y': 1229, 'cake': 1230, 'tablecloth': 1231, 'eats': 1232, 'coffee': 1233, 'cousin': 1234, 'trick': 1235, 'mugs': 1236, 'backbone': 1237, 'mural': 1238, 'prayer': 1239, 'sees': 1240, 'liability': 1241, 'presents': 1242, 'lover': 1243, 'wheeeee': 1244, 'boy': 1245, 'exploiter': 1246, 'rebuilt': 1247, 'luxury': 1248, 'help': 1249, 'doppler': 1250, 'inspector': 1251, \"soakin's\": 1252, 'kinderhook': 1253, \"fightin'\": 1254, 'panties': 1255, 'smart': 1256, 'splattered': 1257, 'marched': 1258, \"'ceptin'\": 1259, 'single-mindedness': 1260, 'offer': 1261, 'junebug': 1262, 'surgery': 1263, \"o'\": 1264, 'diminish': 1265, 'sweat': 1266, 'anybody': 1267, 'guest': 1268, '_hooper:': 1269, 'bon-bons': 1270, 'script': 1271, '<period>': 1272, 'pocket': 1273, 'leathery': 1274, 'rupert_murdoch:': 1275, 'bill': 1276, 'shoots': 1277, 'stage': 1278, \"beer's\": 1279, 'thesaurus': 1280, 'stacey': 1281, 'broken:': 1282, 'culkin': 1283, 'fill': 1284, 'baseball': 1285, 'putting': 1286, 'veux': 1287, 'connor': 1288, 'lighten': 1289, 'disappointed': 1290, 'wall': 1291, 'kick-ass': 1292, 'gimmick': 1293, 'located': 1294, 'faced': 1295, 'hare-brained': 1296, 'life-partner': 1297, 'morose': 1298, \"countin'\": 1299, '$42': 1300, 'pretzel': 1301, 'chipper': 1302, 'explanation': 1303, 'orifice': 1304, 'nineteen': 1305, 'alive': 1306, 'murmurs': 1307, 'moe-clone': 1308, 'material': 1309, 'grammar': 1310, 'reading': 1311, 'wedding': 1312, 'ons': 1313, 'whoa': 1314, 'championship': 1315, 'chapstick': 1316, 'troubles': 1317, 'bloodball': 1318, \"let's\": 1319, 'moe-clone:': 1320, 'unkempt': 1321, 'far': 1322, 'comfortable': 1323, 'earlier': 1324, 'dizzy': 1325, 'lists': 1326, 'cheaper': 1327, 'hunky': 1328, 'pfft': 1329, 'peppers': 1330, 'liser': 1331, 'politicians': 1332, 'lucius:': 1333, 'drawer': 1334, \"lookin'\": 1335, 'hushed': 1336, 'jacques:': 1337, 'bump': 1338, 'shoulda': 1339, 'amused': 1340, 'bell': 1341, 'nein': 1342, 'evasive': 1343, \"lisa's\": 1344, \"collector's\": 1345, \"carl's\": 1346, 'safety': 1347, 'slaves': 1348, 'maitre': 1349, 'thumb': 1350, 'lise:': 1351, 'gently': 1352, 'eighty-six': 1353, 'various': 1354, 'falcons': 1355, 'figure': 1356, 'botanical': 1357, \"renovatin'\": 1358, 'gimmicks': 1359, 'bathroom': 1360, 'wobbly': 1361, 'hair': 1362, \"listenin'\": 1363, 'shut': 1364, 'wear': 1365, 'taught': 1366, 'mike': 1367, 'squishee': 1368, 'treehouse': 1369, 'blue': 1370, 'results': 1371, 'vodka': 1372, 'rascals': 1373, 'brusque': 1374, 'slapped': 1375, 'blowfish': 1376, 'terror': 1377, 'dentist': 1378, 'haikus': 1379, 'swill': 1380, 'gloop': 1381, 'rubbed': 1382, \"washin'\": 1383, 'fever': 1384, 'facebook': 1385, 'long': 1386, 'wh': 1387, 'gutenberg': 1388, 'sir': 1389, 'tribute': 1390, 'kisser': 1391, 'lager': 1392, \"foolin'\": 1393, \"handwriting's\": 1394, 'ice': 1395, 'but': 1396, 'changed': 1397, 'boyhood': 1398, 'his': 1399, 'starters': 1400, 'sweetly': 1401, 'therefore': 1402, 'pop': 1403, \"robbin'\": 1404, 'sound': 1405, 'politics': 1406, 'giant': 1407, 'chapter': 1408, 'glitterati': 1409, 'temple': 1410, 'pool': 1411, 'rest': 1412, 'depository': 1413, 'barf': 1414, 'occurrence': 1415, 'halloween': 1416, 'memory': 1417, 'when-i-get-a-hold-of-you': 1418, 'jelly': 1419, 'love': 1420, 'aww': 1421, 'bellyaching': 1422, 'laramie': 1423, 'bart': 1424, 'lone': 1425, 'ze-ro': 1426, 'so': 1427, 'bono': 1428, 'tease': 1429, \"'evening\": 1430, 'dean': 1431, 'wage': 1432, 'hmm': 1433, 'slyly': 1434, 'rather': 1435, 'instantly': 1436, 'neil_gaiman:': 1437, 'smiled': 1438, 'handler': 1439, 'bartenders': 1440, 'boned': 1441, 'capitalists': 1442, 'match': 1443, 'issues': 1444, 'gumbel': 1445, 'crime': 1446, 'somehow': 1447, 'gosh': 1448, 'countryman': 1449, 'move': 1450, 'tropical': 1451, 'she-pu': 1452, 'tolerable': 1453, 'paste': 1454, 'cajun': 1455, 'dumbbell': 1456, 'sugar-me-do': 1457, 'sips': 1458, 'fica': 1459, 'a-lug': 1460, 'flack': 1461, 'stunned': 1462, 'coins': 1463, 'pack': 1464, 'non-american': 1465, 'george': 1466, 'empty': 1467, 'um': 1468, 'drove': 1469, 'whaaa': 1470, 'stuff': 1471, 'half': 1472, 'eyeballs': 1473, 'drollery': 1474, \"doesn't\": 1475, 'stonewall': 1476, 'old': 1477, 'wells': 1478, 'jamaican': 1479, 'crummy': 1480, 'mona_simpson:': 1481, 'harvey': 1482, 'photographer': 1483, 'sideshow': 1484, 'thoughtfully': 1485, 'idealistic': 1486, 'scared': 1487, 'falling': 1488, 'vacuum': 1489, 'patrons:': 1490, 'pair': 1491, 'boozehound': 1492, 'specified': 1493, 'incredible': 1494, 'liquor': 1495, 'breathtaking': 1496, 'reminded': 1497, 'two-thirds-empty': 1498, 'sight-unseen': 1499, 'undated': 1500, 'billingsley': 1501, \"getting'\": 1502, 'schmoe': 1503, \"ladies'\": 1504, 'blaze': 1505, 'contact': 1506, 'bum:': 1507, 'showed': 1508, 'van': 1509, 'ambrosia': 1510, 'nuts': 1511, 'alien': 1512, 'forty-nine': 1513, 'flush-town': 1514, 'needs': 1515, 'superpower': 1516, 'subject': 1517, 'lime': 1518, 'knocks': 1519, 'jam': 1520, 'jackson': 1521, 'face-macer': 1522, 'fence': 1523, 'rolls': 1524, \"plaster's\": 1525, 'stamps': 1526, 'watashi': 1527, 'highest': 1528, 'pretend': 1529, 'effects': 1530, 'remaining': 1531, 'difficult': 1532, 'ruuuule': 1533, 'angrily': 1534, 'flynt': 1535, 'funniest': 1536, 'sickens': 1537, 'movies': 1538, 'thirty-five': 1539, 'tin': 1540, 'wore': 1541, 'sissy': 1542, 'classy': 1543, 'united': 1544, 'enter': 1545, 'rip-off': 1546, 'soir': 1547, 'scent': 1548, 'street': 1549, 'opportunity': 1550, 'dallas': 1551, 'disappointment': 1552, 'piece': 1553, 'confidentially': 1554, 'eyes': 1555, 'welcome': 1556, 'caricature': 1557, 'cheapskates': 1558, 'hardhat': 1559, 'repressed': 1560, 'sunny': 1561, 'getcha': 1562, 'guard': 1563, 'canyoner-oooo': 1564, 'disguise': 1565, 'committing': 1566, 'paying': 1567, 'prove': 1568, 'bold': 1569, 'tempting': 1570, 'shoulder': 1571, 'sesame': 1572, 'malfeasance': 1573, 'difference': 1574, 'announcer:': 1575, 'stealings': 1576, 'make:': 1577, 'hyahh': 1578, 'belt': 1579, 'tolerance': 1580, 'stagey': 1581, 'law': 1582, 'wood': 1583, 'sprawl': 1584, 'cronies': 1585, 'elocution': 1586, 'weep': 1587, 'iranian': 1588, 'already': 1589, 'groveling': 1590, 'watched': 1591, 'tied': 1592, 'gruesome': 1593, 'saget': 1594, \"man's\": 1595, 'motto': 1596, 'hangover': 1597, 'i/you': 1598, 'owe': 1599, 'pointed': 1600, 'anyone': 1601, 'minute': 1602, 'gambler': 1603, 'since': 1604, 'runaway': 1605, 'bums': 1606, 'reserve': 1607, 'trouble': 1608, 'damn': 1609, 'fbi_agent:': 1610, 'dressed': 1611, 'sector': 1612, 'corporate': 1613, 'barflies': 1614, 'season': 1615, 'accepting': 1616, 'helps': 1617, 'days': 1618, 'byrne': 1619, 'stalwart': 1620, 'ohmygod': 1621, 'leonard': 1622, 'enjoyed': 1623, 'formico': 1624, 'dungeon': 1625, 'is:': 1626, 'crooks': 1627, 'unforgettable': 1628, 'uninhibited': 1629, 'football_announcer:': 1630, 'mickey': 1631, 'wayne:': 1632, 'humiliation': 1633, 'belches': 1634, 'hammock': 1635, \"phone's\": 1636, 'wolfe': 1637, \"round's\": 1638, 'kay': 1639, \"spaghetti-o's\": 1640, 'island': 1641, 'phrase': 1642, 'sounded': 1643, 'pipe': 1644, \"brady's\": 1645, 'sinister': 1646, 'lofty': 1647, 'synthesize': 1648, 'british': 1649, 'park': 1650, 'rome': 1651, \"family's\": 1652, 'ihop': 1653, 'ninety-eight': 1654, 'ends': 1655, 'file': 1656, 'woe:': 1657, 'place': 1658, 'water': 1659, 'squeals': 1660, 'gift': 1661, 'violin': 1662, 'wars': 1663, 'astronaut': 1664, 'plug': 1665, 'robbers': 1666, 'spectacular': 1667, 'helped': 1668, 'sticking-place': 1669, 'poster': 1670, 'clammy': 1671, 'touchdown': 1672, 'compromise:': 1673, 'reentering': 1674, 'guilt': 1675, 'full-bodied': 1676, \"jackpot's\": 1677, 'ninety-nine': 1678, 'set': 1679, 'kill': 1680, 'flew': 1681, 'floor': 1682, 're-al': 1683, 'chairman': 1684, 'teams': 1685, 'dimly': 1686, 'ingrates': 1687, 'bart_simpson:': 1688, 'boozebag': 1689, 'ho-ly': 1690, 'studio': 1691, 'africa': 1692, \"we'd\": 1693, 'small_boy:': 1694, 'hobo': 1695, 'garbage': 1696, 'ruint': 1697, 'push': 1698, 'dreamy': 1699, 'computer_voice_2:': 1700, 'button-pusher': 1701, 'lost': 1702, 'code': 1703, 'dexterous': 1704, 'mistresses': 1705, 'composer': 1706, 'technical': 1707, 'smoker': 1708, 'jeff': 1709, 'yee-haw': 1710, 'parrot': 1711, 'follow': 1712, 'stingy': 1713, 'un-sults': 1714, 'grand': 1715, 'question': 1716, 'delightfully': 1717, 'luckily': 1718, 'thomas': 1719, 'uncle': 1720, 'civilization': 1721, 'self-esteem': 1722, 'madonna': 1723, 'cecil': 1724, \"somethin's\": 1725, 'strips': 1726, 'effect': 1727, 'platinum': 1728, 'ashamed': 1729, 'restroom': 1730, 'cuckoo': 1731, 'charity': 1732, \"should've\": 1733, 'incognito': 1734, 'pretzels': 1735, 'hitchhike': 1736, 'burps': 1737, 'taken': 1738, 'manchego': 1739, 'curious': 1740, 's': 1741, 'arm': 1742, 'loathe': 1743, 'blackjack': 1744, 'nooo': 1745, 'jets': 1746, 'broad': 1747, 'verticality': 1748, 'choked-up': 1749, 'bloodiest': 1750, 'friendship': 1751, 'mary': 1752, 'right': 1753, 'arts': 1754, 'car:': 1755, 'lifts': 1756, 'du': 1757, 'bupkus': 1758, 'life-sized': 1759, 'paid': 1760, 'deserve': 1761, 'betcha': 1762, 'these': 1763, 'glummy': 1764, 'hole': 1765, 'lessons': 1766, 'games': 1767, 'reader': 1768, 'pal': 1769, 'valley': 1770, 'wonder': 1771, 'avalanche': 1772, 'eddie': 1773, 'indifference': 1774, 'send': 1775, 'awwww': 1776, 'stole': 1777, 'yup': 1778, 'voice:': 1779, 'phony': 1780, \"wait'll\": 1781, 'riveting': 1782, 'flea:': 1783, 'letter': 1784, 'relaxed': 1785, 'ironic': 1786, 'freely': 1787, 'fat-free': 1788, 'salary': 1789, 'lipo': 1790, 'pharmaceutical': 1791, 'contemplates': 1792, 'walking': 1793, 'offended': 1794, 'lobster': 1795, 'specials': 1796, 'tummies': 1797, 'luck': 1798, 'tidy': 1799, 'notorious': 1800, 'phase': 1801, 'whim': 1802, 'inserted': 1803, 'chuckles': 1804, 'occasional': 1805, 'jumping': 1806, 'yoink': 1807, 'shutting': 1808, 'recruiter': 1809, 'simple': 1810, 'whoopi': 1811, 'dynamite': 1812, 'doll': 1813, 'finance': 1814, 'guide': 1815, '2': 1816, 'neat': 1817, 'store-bought': 1818, 'glen:': 1819, 'patented': 1820, 'ripped': 1821, 'scores': 1822, 'jar': 1823, 'swan': 1824, \"d'\": 1825, 'doll-baby': 1826, 'shores': 1827, 'check': 1828, '_marvin_monroe:': 1829, 'published': 1830, 'demo': 1831, 'yea': 1832, 'live': 1833, 'conditioner': 1834, 'shorter': 1835, 'mediterranean': 1836, 'low-blow': 1837, 'belts': 1838, 'especially': 1839, 'ride': 1840, 'age': 1841, 'hounds': 1842, 'challenge': 1843, 'ringing': 1844, 'artist': 1845, 'wears': 1846, 'customers': 1847, 'ref': 1848, 'shock': 1849, 'chinua': 1850, \"meanin'\": 1851, 'everybody': 1852, 'attraction': 1853, 'aging': 1854, 'princess': 1855, \"bo's\": 1856, 'charming': 1857, 'pull': 1858, \"d'ya\": 1859, 'conclusions': 1860, 'beverage': 1861, \"'kay-zugg'\": 1862, 'abe': 1863, 'playful': 1864, 'amid': 1865, 'meaningless': 1866, 'rem': 1867, 'dumpster': 1868, 'huddle': 1869, 'excavating': 1870, 'come': 1871, 'god': 1872, 'almost': 1873, 'tabs': 1874, 'arse': 1875, 'instead': 1876, 'lonely': 1877, 'schabadoo': 1878, \"tv'll\": 1879, 'supply': 1880, 'kadlubowski': 1881, 'predecessor': 1882, 'fund': 1883, 'sealed': 1884, 'pages': 1885, 'spread': 1886, 'counter': 1887, 'spellbinding': 1888, 'thing:': 1889, 'lawyer': 1890, 'midge:': 1891, 'ambrose': 1892, \"table's\": 1893, 'italian': 1894, 'express': 1895, 'jewish': 1896, 'oooo': 1897, 'pitcher': 1898, 'whaddya': 1899, 'patron_#2:': 1900, 'perfunctory': 1901, 'crimes': 1902, 'where': 1903, 'before': 1904, 'stein-stengel-': 1905, 'protesters': 1906, 'butter': 1907, 'prizefighters': 1908, 'wiggle-frowns': 1909, 'argue': 1910, 'victim': 1911, 'today': 1912, 'burt': 1913, \"'cause\": 1914, 'abandon': 1915, 'drains': 1916, 'shotgun': 1917, 'learn': 1918, 'hunter': 1919, 'deep': 1920, 'slot': 1921, 'cheering': 1922, 'table': 1923, 'wuss': 1924, 'lorre': 1925, 'sausage': 1926, 'as': 1927, 'we': 1928, 'throat': 1929, 'fontaine': 1930, 'confidential': 1931, 'shifty': 1932, 'wienerschnitzel': 1933, 'complaining': 1934, 'virtual': 1935, 'awful': 1936, 'used': 1937, 'wrote': 1938, 'thnord': 1939, 'name': 1940, 'advantage': 1941, 'drop': 1942, \"'ere\": 1943, 'unfair': 1944, 'appeals': 1945, 'anonymous': 1946, 'swallowed': 1947, 'lighter': 1948, 'agent_miller:': 1949, 'plastic': 1950, 'light': 1951, '_powers:': 1952, 'margarita': 1953, 'heh-heh': 1954, 'woman:': 1955, 'weekly': 1956, 'isle': 1957, 'spits': 1958, 'gasp': 1959, 'duh': 1960, 'were': 1961, 'course': 1962, 'malabar': 1963, 'grub': 1964, \"pullin'\": 1965, 'hero': 1966, 'unlocked': 1967, 'detail': 1968, 'came': 1969, 'stadium': 1970, 'index': 1971, \"watchin'\": 1972, 'seemed': 1973, \"town's\": 1974, 'grab': 1975, 'resolution': 1976, 'ventriloquism': 1977, 'graves': 1978, 'endorse': 1979, 'draw': 1980, 'states': 1981, 'band': 1982, 'pumping': 1983, 'lives': 1984, 'loaded': 1985, 'tune': 1986, 'astronauts': 1987, 'american': 1988, 'snaps': 1989, 'ho-la': 1990, 'nigerian': 1991, 'points': 1992, 'hammer': 1993, 'then:': 1994, 'blew': 1995, 'dictator': 1996, 'grow': 1997, 'edgy': 1998, 'husband': 1999, 'drown': 2000, 'thunder': 2001, 'minimum': 2002, 'person': 2003, 'butt': 2004, 'runners': 2005, 'amiable': 2006, 'device': 2007, 'swimmers': 2008, 'guess': 2009, 'bear': 2010, \"son's\": 2011, 'decided': 2012, 'same': 2013, 'ollie': 2014, 'register': 2015, 'bedroom': 2016, 'pre-columbian': 2017, 'rubs': 2018, 'finished': 2019, 'of': 2020, 'regulars': 2021, 'might': 2022, 'portuguese': 2023, \"something's\": 2024, 'cap': 2025, 'broom': 2026, 'won': 2027, 'teach': 2028, 'sight': 2029, 'eternity': 2030, 'telegraph': 2031, 'enterprising': 2032, 'pointing': 2033, 'dutch': 2034, 'investigating': 2035, 'quality': 2036, 'concerned': 2037, 'extinguishers': 2038, 'proposition': 2039, 'meyerhof': 2040, 'declan': 2041, 'achebe': 2042, 'troy_mcclure:': 2043, 'correct': 2044, 'marshmallow': 2045, 'plus': 2046, 'lenny_leonard:': 2047, 'ruby-studded': 2048, 'hours': 2049, 'pus-bucket': 2050, 'swell': 2051, 'awww': 2052, 'email': 2053, 'bret:': 2054, 'hangs': 2055, 'celeste': 2056, \"homer's\": 2057, 'düff': 2058, 'mention': 2059, 'knowledge': 2060, 'puff': 2061, 'haplessly': 2062, 'hyper-credits': 2063, 'pills': 2064, 'yoo': 2065, 'e': 2066, 'kirk': 2067, 'neighbor': 2068, 'afterglow': 2069, 'jumps': 2070, 'wenceslas': 2071, 'spirit': 2072, 'perfume': 2073, 'depressed': 2074, 'should': 2075, 'carlotta:': 2076, 'spacey': 2077, 'picky': 2078, 'digging': 2079, 'assume': 2080, 'agency': 2081, 'highway': 2082, 'waters': 2083, 'thank': 2084, 'malted': 2085, 'give': 2086, \"they're\": 2087, 'forty-two': 2088, 'leaving': 2089, 'family': 2090, 'undermine': 2091, 'pats': 2092, 'borrow': 2093, 'find': 2094, 'sweetheart': 2095, 'lowers': 2096, 'blur': 2097, 'wacky': 2098, 'shred': 2099, \"i'unno\": 2100, 'took': 2101, 'kiss': 2102, 'this:': 2103, 'ling': 2104, 'eu': 2105, 'job': 2106, 'type': 2107, 'sanitary': 2108, 'compels': 2109, 'lazy': 2110, 'co-sign': 2111, 'obama': 2112, 'toy': 2113, 'soap': 2114, 'darkest': 2115, 'strangles': 2116, 'whaaaa': 2117, 'amanda': 2118, 'sustain': 2119, 'etc': 2120, 'plywood': 2121, 'stab': 2122, 'haws': 2123, 'perking': 2124, 'righ': 2125, 'intense': 2126, 'bank': 2127, 'side': 2128, 'mister': 2129, 'sucker': 2130, 'booking': 2131, 'peter': 2132, \"changin'\": 2133, 'sea': 2134, 'john': 2135, 'diddilies': 2136, 'about': 2137, 'muslim': 2138, 'double': 2139, 'sixty-nine': 2140, 'candles': 2141, 'jeez': 2142, 'happens': 2143, 'bald': 2144, 'hands': 2145, 'contract': 2146, 'gasoline': 2147, 'other': 2148, 'lenny:': 2149, \"knockin'\": 2150, \"sat's\": 2151, 'sec_agent_#2:': 2152, 'stars': 2153, 'bret': 2154, 'your': 2155, \"'round\": 2156, 'odor': 2157, 'air': 2158, 'heck': 2159, 'writer:': 2160, 'dory': 2161, 'accounta': 2162, 'aidens': 2163, 'don': 2164, 'windshield': 2165, 'perplexed': 2166, 'service': 2167, 'upn': 2168, 'kidding': 2169, 'tick': 2170, 'reach': 2171, 'clench': 2172, 'alternative': 2173, 'springfield': 2174, 'caveman': 2175, 'cuff': 2176, 'started': 2177, 'furry': 2178, 'birthplace': 2179, 'badmouth': 2180, 'honeys': 2181, 'side:': 2182, 'peanut': 2183, 'loboto-moth': 2184, 'listening': 2185, 'camera': 2186, 'coast': 2187, 'illegal': 2188, 'awkward': 2189, 'fanciest': 2190, 'optimistic': 2191, 'keys': 2192, 'recommend': 2193, 'eggs': 2194, 'deny': 2195, 'dull': 2196, 'force': 2197, 'scornful': 2198, 'louse': 2199, 'crowbar': 2200, 'onto': 2201, 'latin': 2202, 'sooner': 2203, 'lindsay': 2204, 'near': 2205, 'pulling': 2206, 'strategizing': 2207, 'flash-fry': 2208, 'spender': 2209, 'rationalizing': 2210, 'glee': 2211, \"usin'\": 2212, 'muttering': 2213, 'shreda': 2214, 'federal': 2215, 'man_with_tree_hat:': 2216, 'inflated': 2217, 'death': 2218, 'minus': 2219, 'bashir': 2220, 'cyrano': 2221, \"rasputin's\": 2222, 'would': 2223, 'quickly': 2224, 'reading:': 2225, 'mumbling': 2226, 'expose': 2227, 'fortensky': 2228, 'recently': 2229, 'thorough': 2230, \"how's\": 2231, 'nicer': 2232, 'idea': 2233, 'maya': 2234, 'benjamin': 2235, 'playhouse': 2236, 'add': 2237, 'space-time': 2238, 'produce': 2239, \"sittin'\": 2240, 'bon': 2241, 'legally': 2242, 'uncomfortable': 2243, 'wisconsin': 2244, 'buying': 2245, 'east': 2246, 'coined': 2247, 'everyone': 2248, \"chewin'\": 2249, 'clubs': 2250, 'proudly': 2251, 'stretches': 2252, 'inning': 2253, 'tsk': 2254, 'fortune': 2255, 'kwik-e-mart': 2256, 'homers': 2257, 'citizens': 2258, 'for': 2259, 'example': 2260, 'calling': 2261, 'held': 2262, 'nbc': 2263, 'uhhhh': 2264, 'grind': 2265, 'free': 2266, 'buzziness': 2267, 'itchy': 2268, 'ding-a-ding-ding-ding-ding-ding-ding': 2269, 'fuss': 2270, \"'bout\": 2271, \"g'on\": 2272, 'health_inspector:': 2273, 'steam': 2274, 'unfresh': 2275, 'diapers': 2276, 'au': 2277, 'smuggled': 2278, 'socialize': 2279, 'eighty-five': 2280, 'boring': 2281, 'forget': 2282, 'unsafe': 2283, 'murmur': 2284, 'amount': 2285, 'decency': 2286, 'led': 2287, 'cruel': 2288, 'carb': 2289, 'mystery': 2290, 'prices': 2291, 'well': 2292, 'quadruple-sec': 2293, 'extended': 2294, 'class': 2295, 'steaming': 2296, 'snow': 2297, 'compadre': 2298, 'close': 2299, 'go-near-': 2300, 'kidneys': 2301, 'cruise': 2302, 'that': 2303, 'lobster-based': 2304, 'grumpy': 2305, 'jerks': 2306, 'body': 2307, 'wakede': 2308, 'pure': 2309, 'mm': 2310, 'koji': 2311, 'you-need-man': 2312, 'singers:': 2313, 'mobile': 2314, \"depressin'\": 2315, 'acronyms': 2316, 'inanely': 2317, 'wipes': 2318, 'patterns': 2319, 'complicated': 2320, 'depressant': 2321, 'ass': 2322, 'honest': 2323, 'dumb': 2324, 'fabulous': 2325, 'noggin': 2326, 'forgotten': 2327, 'occupation': 2328, 'pajamas': 2329, 'carey': 2330, 'portentous': 2331, 'uh-oh': 2332, 'exited': 2333, 'lighting': 2334, \"i'd'a\": 2335, 'treasure': 2336, 'mamma': 2337, 'discuss': 2338, 'sharps': 2339, 'agent_johnson:': 2340, 'enjoys': 2341, 'explain': 2342, 'harmony': 2343, 'walther': 2344, 'been': 2345, 'upgrade': 2346, 'basement': 2347, 'releasing': 2348, 'operation': 2349, 'separator': 2350, 'declared': 2351, 'sobo': 2352, 'bet': 2353, 'monkey': 2354, 'pipes': 2355, 'spanish': 2356, 'huge': 2357, 'perverted': 2358, '/mr': 2359, 'wildfever': 2360, 'asses': 2361, 'flaking': 2362, 'hat': 2363, 'pretending': 2364, 'super-nice': 2365, 'never': 2366, 'entering': 2367, 'infiltrate': 2368, \"hobo's\": 2369, 'decide:': 2370, 'volunteer': 2371, 'muhammad': 2372, 'anyhoo': 2373, 'pitch': 2374, 'cross-country': 2375, 'cold': 2376, 'badly': 2377, 'onions': 2378, 'tonight': 2379, 'into': 2380, 'seymour': 2381, 'goblins': 2382, 'paint': 2383, 'winston': 2384, 'bam': 2385, 'smelling': 2386, \"donatin'\": 2387, 'rats': 2388, 'occupancy': 2389, 'skinny': 2390, 'nonsense': 2391, 'david': 2392, 'chief': 2393, 'crayola': 2394, 'lance': 2395, 'tigers': 2396, 'mmmmm': 2397, 'i-i-i': 2398, 'answered': 2399, 'glum': 2400, 'fail': 2401, 'twenty': 2402, 'stories': 2403, 'trail': 2404, 'karaoke_machine:': 2405, 'kids': 2406, 'strong': 2407, 'lessee': 2408, 'learned': 2409, 'holiday': 2410, 'burp': 2411, 'spilled': 2412, 'feat': 2413, 'wind': 2414, 'innocence': 2415, 'yards': 2416, 'dna': 2417, 'stooges': 2418, 'danish': 2419, 'forgive': 2420, 'thinks': 2421, 'cheered': 2422, 'completing': 2423, 'hits': 2424, 'court': 2425, 'branding': 2426, 'miss': 2427, 'someplace': 2428, 'loves': 2429, 'scanning': 2430, 'mahatma': 2431, 'months': 2432, 'first': 2433, \"treatin'\": 2434, 'imported-sounding': 2435, 'strictly': 2436, \"guy's\": 2437, 'syndicate': 2438, 'puzzled': 2439, 'ghouls': 2440, 'satisfied': 2441, \"bringin'\": 2442, 'wheel': 2443, 'scream': 2444, 'declan_desmond:': 2445, 'reaching': 2446, 'occurred': 2447, 'image': 2448, 'did': 2449, 'truth': 2450, 'dirge-like': 2451, \"other's\": 2452, 'parasol': 2453, 'singer': 2454, 'beer-jerks': 2455, 'kept': 2456, 'to': 2457, 'older': 2458, 'landlord': 2459, 'wade_boggs:': 2460, 'write': 2461, 'priority': 2462, 'ancient': 2463, 'disappointing': 2464, 'tatum': 2465, \"'im\": 2466, 'product': 2467, 'yak': 2468, 'grains': 2469, 'aggie': 2470, 'rims': 2471, 'clenched': 2472, 'kings': 2473, 'people': 2474, 'shrugs': 2475, 'neighboreeno': 2476, 'terminated': 2477, 'cocking': 2478, 'now': 2479, 'brief': 2480, 'young_marge:': 2481, 'supermodel': 2482, 'case': 2483, 'nash': 2484, 'indecipherable': 2485, 'beatings': 2486, 'smelly': 2487, 'sat-is-fac-tion': 2488, 'coal': 2489, 'h': 2490, \"you'd\": 2491, 'wishes': 2492, 'sniper': 2493, 'most:': 2494, 'cell': 2495, 'labels': 2496, \"professor's\": 2497, 'wings': 2498, 'backwards': 2499, 'traditions': 2500, \"we've\": 2501, 'braun:': 2502, 'eightball': 2503, 'hardwood': 2504, 'fourteen:': 2505, 'me': 2506, 'ken:': 2507, 'cockroach': 2508, 'pregnancy': 2509, 'emotion': 2510, 'erasers': 2511, 'asking': 2512, 'passed': 2513, 'winner': 2514, 'railroad': 2515, 'suspiciously': 2516, 'increasingly': 2517, 'creeps': 2518, 'tall': 2519, 'corporation': 2520, 'apply': 2521, 'lady': 2522, \"car's\": 2523, 'rainbows': 2524, 'sagacity': 2525, 'option': 2526, 'whaddaya': 2527, 'catching': 2528, 'heads': 2529, 'ragtime': 2530, 'listened': 2531, 'skydiving': 2532, 'heroism': 2533, 'speed': 2534, 'wiggle': 2535, 'huh': 2536, 'blessing': 2537, 'book': 2538, 'hospital': 2539, 'barbara': 2540, \"writin'\": 2541, 'yap': 2542, 'mini-dumpsters': 2543, 'smiles': 2544, 'pause': 2545, 'warn': 2546, 'in-ground': 2547, 'an': 2548, 'engraved': 2549, 'tv_announcer:': 2550, \"where's\": 2551, 'i': 2552, \"singin'\": 2553, 'denver': 2554, 'homunculus': 2555, 'coat': 2556, 'error': 2557, 'savings': 2558, 'moe_szyslak:': 2559, 'bee': 2560, 'gang': 2561, 'friction': 2562, 'chipped': 2563, 'hide': 2564, 'mailbox': 2565, 'thanks': 2566, \"fine-lookin'\": 2567, 'sour': 2568, 'drivers': 2569, 'fondly': 2570, 'drunkenly': 2571, 'ready': 2572, 'million': 2573, 'granted': 2574, 'dangerous': 2575, 'kidnaps': 2576, 'ducked': 2577, 'massive': 2578, 'bastard': 2579, 'updated': 2580, 'successful': 2581, '_babcock:': 2582, 'step': 2583, 'smallest': 2584, 'regretted': 2585, 'lady-free': 2586, 'rid': 2587, 'male_singers:': 2588, 'nuked': 2589, 'starve': 2590, 'six-barrel': 2591, 'norway': 2592, 'whistles': 2593, 'again': 2594, 'crank': 2595, 'exchanged': 2596, 'sharing': 2597, 'still': 2598, 'scoffs': 2599, 'drunks': 2600, 'gator': 2601, 'minutes': 2602, 'card': 2603, 'swe-ee-ee-ee-eet': 2604, 'heliotrope': 2605, 'hostile': 2606, 'aims': 2607, 'manatee': 2608, 'clothes': 2609, 'walks': 2610, 'unavailable': 2611, 'totalitarians': 2612, 'fast-paced': 2613, 'mount': 2614, 'sponsoring': 2615, 'hm': 2616, 'planet': 2617, \"readin'\": 2618, 'brainheaded': 2619, \"toot's\": 2620, 'impending': 2621, 'macaulay': 2622, 'stripes': 2623, 'hollye': 2624, 'eyeball': 2625, 'flayvin': 2626, 'recorder': 2627, 'yeah': 2628, 'title:': 2629, 'chastity': 2630, 'teacup': 2631, 'recreate': 2632, 'lips': 2633, \"'em\": 2634, 'greatest': 2635, 'chumbawamba': 2636, 'b': 2637, 'rush': 2638, 'babies': 2639, 'written': 2640, 'cocoa': 2641, 'stranger:': 2642, 'democrats': 2643, 'say': 2644, 'lottery': 2645, 'thirty-thousand': 2646, 'flash': 2647, 'warranty': 2648, 'sampler': 2649, \"comin'\": 2650, 'win': 2651, 'jaegermeister': 2652, 'loved': 2653, \"'s\": 2654, 'fix': 2655, \"fans'll\": 2656, 'chateau': 2657, 'jeter': 2658, 'punishment': 2659, 'upsetting': 2660, 'taunting': 2661, 'animals': 2662, 'renders': 2663, 'please/': 2664, 'eww': 2665, 'hillbillies': 2666, 'shooting': 2667, 'nasa': 2668, 'shakes': 2669, 'pip': 2670, 'harvard': 2671, \"lady's\": 2672, 'firing': 2673, 'outrageous': 2674, 'payday': 2675, 'strategy': 2676, 'rock': 2677, 'commit': 2678, 'science': 2679, 'road': 2680, 'belly': 2681, 'chapel': 2682, 'friendly': 2683, 'diet': 2684, 'easygoing': 2685, 'repeating': 2686, 'compete': 2687, 'boxcars': 2688, 'foot': 2689, 'uncreeped-out': 2690, 'ominous': 2691, 'conclude': 2692, 'pets': 2693, 'pulls': 2694, 'killed': 2695, 'getaway': 2696, 'fall': 2697, 'wait': 2698, 'determined': 2699, 'boxer': 2700, 'unison': 2701, 'better': 2702, 'sold': 2703, \"tester's\": 2704, 'woulda': 2705, 'sniffing': 2706, 'kind': 2707, 'exhale': 2708, 'fake': 2709, 'youth': 2710, \"g'night\": 2711, \"y'money's\": 2712, 'high-definition': 2713, 'taylor': 2714, 'sickened': 2715, \"homer'll\": 2716, 'lemme': 2717, 'shelf': 2718, 'folk': 2719, 'reciting': 2720, 'whup': 2721, 'crotch': 2722, 'penmanship': 2723, 'moustache': 2724, 'pepto-bismol': 2725, 'corner': 2726, 'gimme': 2727, 'total': 2728, 'literary': 2729, \"they'd\": 2730, 'intervention': 2731, \"this'll\": 2732, 'predictable': 2733, 'clear': 2734, 'pennies': 2735, 'teenage': 2736, 'fbi': 2737, 'tragedy': 2738, 'defeated': 2739, 'permitting': 2740, 'tells': 2741, 'micronesian': 2742, 'willing': 2743, 'mither': 2744, 'mcclure': 2745, 'driving': 2746, 'contented': 2747, '8': 2748, 'prompting': 2749, 'horrors': 2750, 'bar-boy': 2751, 'bowl': 2752, \"doctor's\": 2753, \"yesterday's\": 2754, 'furious': 2755, 'ronstadt': 2756, 'looooooooooooooooooong': 2757, 'just': 2758, 'lewis': 2759, 'intention': 2760, 'whisper': 2761, 'utensils': 2762, 'flying': 2763, 'shtick': 2764, 'unjustly': 2765, 'prepared': 2766, 'nigeria': 2767, 'invented': 2768, 'syrup': 2769, 'enjoy': 2770, 'rekindle': 2771, 'sidelines': 2772, 'fights': 2773, 'cigarettes': 2774, 'five-fifteen': 2775, \"'morning\": 2776, 'ya': 2777, 'mommy': 2778, 'cleaned': 2779, \"could've\": 2780, 'station': 2781, 'want': 2782, \"'topes\": 2783, 'forty-five': 2784, 'concentrate': 2785, 'celebrate': 2786, 'warren': 2787, 'sympathizer': 2788, 'canoodling': 2789, 'oof': 2790, 'y-you': 2791, 'recipe': 2792, 'followed': 2793, 'fridge': 2794, 'small': 2795, 'jukebox': 2796, 'mouth': 2797, 'tv_husband:': 2798, 'mags': 2799, 'jerk-ass': 2800, 'crushed': 2801, 'leftover': 2802, 'fool': 2803, ':': 2804, 'soon': 2805, 'cheerier': 2806, 'ingredient': 2807, 'horses': 2808, 'tv_daughter:': 2809, 'connor-politan': 2810, 'anymore': 2811, 'locklear': 2812, 'toledo': 2813, 'karaoke': 2814, 'windowshade': 2815, 'jobless': 2816, 'quiet': 2817, 'wazoo': 2818, 'hubub': 2819, 'santa': 2820, 'muffled': 2821, 'musta': 2822, \"isn't\": 2823, 'specific': 2824, 'ore': 2825, 'wiener': 2826, 'spelling': 2827, 'incriminating': 2828, 'michael_stipe:': 2829, 'clap': 2830, 'boozer': 2831, 'darts': 2832, 'alarm': 2833, 'binoculars': 2834, \"who'da\": 2835, 'congoleum': 2836, 'barflies:': 2837, 'conditioners': 2838, 'manage': 2839, 'charged': 2840, 'began': 2841, 'belch': 2842, 'all': 2843, 'bumblebee_man:': 2844, 'endorsement': 2845, 'beautiful': 2846, 'warm_female_voice:': 2847, \"wouldn't\": 2848, 'hateful': 2849, 'shaken': 2850, 'kool': 2851, 'links': 2852, 'guessing': 2853, 'thankful': 2854, 'gabriel': 2855, 'trapping': 2856, 'forbidden': 2857, 'marquee': 2858, 'mariah': 2859, 'cleveland': 2860, 'sequel': 2861, 'deer': 2862, \"england's\": 2863, 'trade': 2864, 'bourbon': 2865, 'them': 2866, 'lanes': 2867, \"kearney's_dad:\": 2868, 'babe': 2869, 'ballclub': 2870, 'obese': 2871, 'rounds': 2872, 'answers': 2873, 'commanding': 2874, 'icy': 2875, 'appropriate': 2876, 'colossal': 2877, 'buddha': 2878, 'yell': 2879, \"tv's\": 2880, 'elect': 2881, 'spent': 2882, \"secret's\": 2883, 'trunk': 2884, \"betsy'll\": 2885, 'different': 2886, 'poetics': 2887, 'peanuts': 2888, 'mother': 2889, 'and:': 2890, 'winning': 2891, 'glorious': 2892, 'designated': 2893, 'lenses': 2894, 'safecracker': 2895, 'refinanced': 2896, 'automobiles': 2897, 'mouse': 2898, 'crinkly': 2899, 'scrubbing': 2900, 'heaven': 2901, 'possessions': 2902, 'hub': 2903, 'wayne': 2904, 'silence': 2905, 'wistful': 2906, \"dolph's_dad:\": 2907, 'fantasy': 2908, 'suru': 2909, 'opens': 2910, 'homer': 2911, \"sippin'\": 2912, 'fonda': 2913, 'felt': 2914, 'vote': 2915, 'excellent': 2916, 'generally': 2917, 'famous': 2918, 'studied': 2919, 'ridiculous': 2920, 'numbers': 2921, 'inserts': 2922, 'holds': 2923, 'flames': 2924, 'penny': 2925, 'items': 2926, 'jerk': 2927, 'lodge': 2928, 'gol-dangit': 2929, 'feisty': 2930, 'rusty': 2931, 'senators': 2932, 'fold': 2933, 'young_homer:': 2934, 'have': 2935, 'donation': 2936, 'loser': 2937, 'sky': 2938, 'assent': 2939, 'aw': 2940, 'coma': 2941, 'stands': 2942, 'community': 2943, 'compliment': 2944, 'worse': 2945, 'encore': 2946, 'considering': 2947, 'carnival': 2948, 'at': 2949, \"o'problem\": 2950, \"what'd\": 2951, 'unrelated': 2952, 'bothered': 2953, 'grin': 2954, 'nachos': 2955, 'and': 2956, 'collette:': 2957, 'agent': 2958, 'two-drink': 2959, 'dancing': 2960, 'so-called': 2961, 'st': 2962, 'assistant': 2963, 'devastated': 2964, 'blade': 2965, '<hyphens>': 2966, 'wine': 2967, 'bar': 2968, 'swishkabobs': 2969, 'forever': 2970, 'vacations': 2971, 'tentative': 2972, 'cookies': 2973, 'mine': 2974, 'break-up': 2975, 'ate': 2976, 'sigh': 2977, 'student': 2978, 'bites': 2979, 'dive': 2980, 'row': 2981, 'elephants': 2982, 'moonlight': 2983, 'clips': 2984, 'knit': 2985, 'ginger': 2986, 'denser': 2987, 'old-time': 2988, 'chauffeur:': 2989, 'mean': 2990, \"idea's\": 2991, 'mind': 2992, 'man_at_bar:': 2993, \"cont'd:\": 2994, 'snatch': 2995, 'relax': 2996, 'turned': 2997, 'lot': 2998, 'aside': 2999, 'party': 3000, 'hemoglobin': 3001, 'effervescent': 3002, 'rule': 3003, 'indeed': 3004, 'faces': 3005, 'referee': 3006, 'wound': 3007, 'starla:': 3008, 'themselves': 3009, 'hootie': 3010, 'slip': 3011, 'rainforest': 3012, 'burger': 3013, 'stuck': 3014, 'craft': 3015, 'tinkle': 3016, 'fifty': 3017, 'post-suicide': 3018, 'occasion': 3019, 'advertising': 3020, 'uglier': 3021, 'from': 3022, 'gabriel:': 3023, 'eyeing': 3024, 'girl-bart': 3025, 'moe-lennium': 3026, 'helicopter': 3027, 'timbuk-tee': 3028, 'early': 3029, 'reporter:': 3030, 'west': 3031, 'onion': 3032, 'wins': 3033, 'genuinely': 3034, 'story': 3035, 'understanding': 3036, 'entrance': 3037, 'lifters': 3038, 'meet': 3039, 'done:': 3040, 'nope': 3041, 'meaningfully': 3042, 'chorus:': 3043, 'date': 3044, 'quimby': 3045, 'padre': 3046, 'goldarnit': 3047, 'moving': 3048, 'puke-holes': 3049, 'highball': 3050, 'restaurant': 3051, 'exits': 3052, 'prejudice': 3053, 'favor': 3054, \"they'll\": 3055, 'quarry': 3056, 'businessman_#2:': 3057, 'plans': 3058, 'chum': 3059, 'carlson': 3060, 'releases': 3061, 'sober': 3062, 'sucked': 3063, 'another': 3064, 'shakespeare': 3065, 'edna-lover-one-seventy-two': 3066, 'saga': 3067, 'touches': 3068, 'insecure': 3069, 'cocks': 3070, 'amends': 3071, 'dreary': 3072, 'spooky': 3073, 'accurate': 3074, 'size': 3075, 'all-all-all': 3076, 'anxious': 3077, 'daughter': 3078, 'meanwhile': 3079, 'england': 3080, 'killjoy': 3081, 'excited': 3082, 'cops': 3083, 'lease': 3084, 'torn': 3085, 'o': 3086, 'starting': 3087, 'baritone': 3088, 'whatcha': 3089, 'crow': 3090, 'nice': 3091, 'telemarketing': 3092, 'flanders:': 3093, 'gluten': 3094, 'jesus': 3095, 'progress': 3096, 'restaurants': 3097, 'julep': 3098, 'nauseous': 3099, 'fritz:': 3100, 'towed': 3101, 'joey': 3102, \"don't\": 3103, 'bush': 3104, 'persia': 3105, 'runs': 3106, 'coughs': 3107, 'texas': 3108, 'calendars': 3109, 'eve': 3110, 'players': 3111, 'bathtub': 3112, 'thousands': 3113, 'wake': 3114, 'focus': 3115, 'in': 3116, 'suppose': 3117, 'pen': 3118, 'anthony_kiedis:': 3119, 're:': 3120, 'cutie': 3121, 'homer_': 3122, 'kentucky': 3123, 'guttural': 3124, 'har': 3125, 'prince': 3126, 'old_jewish_man:': 3127, 'bottles': 3128, 'cuddling': 3129, 'scum-sucking': 3130, 'unhappy': 3131, 'slobbo': 3132, 'coach:': 3133, 'pass': 3134, 'eight': 3135, 'affects': 3136, 'stinks': 3137, 'blooded': 3138, 'scene': 3139, 'thousand': 3140, 'dearest': 3141, 'floating': 3142, 'gentlemen': 3143, 'nation': 3144, 'tanking': 3145, 'rotten': 3146, 'products': 3147, \"can't\": 3148, 'apology': 3149, 'reflected': 3150, 'character': 3151, 'tremendous': 3152, 'fast-food': 3153, 'woozy': 3154, 'managing': 3155, 'tank': 3156, 'order': 3157, 'mike_mills:': 3158, 'covers': 3159, 'rat-like': 3160, 'squeeze': 3161, 'indeedy': 3162, 'judges': 3163, 'rhyme': 3164, 'mad': 3165, 'indignant': 3166, 'gestated': 3167, 'mop': 3168, 'insulted': 3169, 'named': 3170, 'hangout': 3171, 'label': 3172, 'slop': 3173, \"coffee'll\": 3174, 'youse': 3175, 'excitement': 3176, 'four': 3177, 'crowded': 3178, 'huggenkiss': 3179, 'neighborhood': 3180, 'original': 3181, 'testing': 3182, 'trainers': 3183, 'scornfully': 3184, 'author': 3185, 'winch': 3186, 'chubby': 3187, 'ninety-seven': 3188, \"poundin'\": 3189, 'leave': 3190, 'wang': 3191, 'spitting': 3192, 'cushion': 3193, 'banned': 3194, 'anderson': 3195, 'kick': 3196, 'meditative': 3197, 'wikipedia': 3198, 'crying': 3199, 'lee': 3200, 'cappuccino': 3201, 'sinkhole': 3202, 'wrap': 3203, 'bathed': 3204, '35': 3205, 'lowering': 3206, 'it': 3207, \"stallin'\": 3208, \"clancy's\": 3209, 'knock-up': 3210, \"world's\": 3211, 'wednesday': 3212, 'lingus': 3213, \"wonderin'\": 3214, 'safer': 3215, 'misconstrue': 3216, 'with': 3217, 'bono:': 3218, 'benjamin:': 3219, 'fondest': 3220, 'shaggy': 3221, 'full': 3222, 'maxed': 3223, 'sap': 3224, 'fan': 3225, 'ripcord': 3226, 'gulliver_dark:': 3227, 'pathetic': 3228, 'admitting': 3229, 'oooh': 3230, 'sack': 3231, 'triple-sec': 3232, 'tar-paper': 3233, 'message': 3234, 'ticket': 3235, 'apron': 3236, 'scrutinizes': 3237, 'regulations': 3238, 'religious': 3239, 'desperately': 3240, 'lucky': 3241, 'broken': 3242, 'hockey-fight': 3243, 'eddie:': 3244, 'falsetto': 3245, 'closer': 3246, 'anguished': 3247, 'channel': 3248, 'forecast': 3249, 'zeal': 3250, 'cocktail': 3251, \"snappin'\": 3252, 'eye-gouger': 3253, 'important': 3254, 'choices:': 3255, 'forward': 3256, 'shot': 3257, \"she'd\": 3258, 'beginning': 3259, 'gayer': 3260, 'temp': 3261, 'great': 3262, 'housework': 3263, 'environment': 3264, 'fresh': 3265, 'market': 3266, 'plow': 3267, 'k': 3268, 'bannister': 3269, 'takeaway': 3270, \"what'll\": 3271, 'may': 3272, 'years': 3273, 'bowled': 3274, 'beer:': 3275, 'upbeat': 3276, \"gentleman's\": 3277, 'fireball': 3278, 'kirk_van_houten:': 3279, 'waylon_smithers:': 3280, 'knife': 3281, 'schnapps': 3282, 'stripe': 3283, 'lucinda': 3284, 'jacksons': 3285, \"thing's\": 3286, 'firm': 3287, 'scare': 3288, 'ech': 3289, 'locked': 3290, 'november': 3291, \"he'll\": 3292, 'strongly': 3293, 'latour': 3294, 'meals': 3295, 'macho': 3296, 'upset': 3297, \"ol'\": 3298, 'threatening': 3299, 'slurps': 3300, 'counting': 3301, 'delays': 3302, 'chip': 3303, 'yawns': 3304, 'radical': 3305, 'not': 3306, 'sobbing': 3307, 'arimasen': 3308, 'tender': 3309, \"summer's\": 3310, \"thinkin'\": 3311, 'limericks': 3312, 'business': 3313, 'troy:': 3314, 'think': 3315, 'cameras': 3316, 'dozen': 3317, 'tonic': 3318, 'regret': 3319, 'vengeful': 3320, 'gruff': 3321, 'espn': 3322, 'caused': 3323, 'german': 3324, 'packets': 3325, 'staying': 3326, 'boyfriend': 3327, 'graveyard': 3328, 'meaningful': 3329, 'hike': 3330, 'genius': 3331, \"hangin'\": 3332, 'butterball': 3333, 'made': 3334, 'twins': 3335, 'composite': 3336, 'theater': 3337, 'virile': 3338, 'harvesting': 3339, 'reaction': 3340, 'bagged': 3341, 'b-day': 3342, 'ease': 3343, 'oh': 3344, 'ten': 3345, 'schorr': 3346, 'swings': 3347, 'protesting': 3348, 'patron_#1:': 3349, 'late': 3350, 'career': 3351, 'hunka': 3352, 'floated': 3353, 'in-in-in': 3354, 'disgusted': 3355, 'gold': 3356, 'remains': 3357, 'raises': 3358, 'twin': 3359, 'innocuous': 3360, \"feelin's\": 3361, 'não': 3362, 'loan': 3363, 'stood': 3364, 'kahlua': 3365, 'nibble': 3366, 'twenty-nine': 3367, \"goin'\": 3368, 'sign': 3369, 'tons': 3370, 'feels': 3371, 'meaning': 3372, 'solves': 3373, 'dizer': 3374, 'little_man:': 3375, 'enemies': 3376, 'alone': 3377, 'samples': 3378, 'cash': 3379, 'gorgeous': 3380, \"kids'\": 3381, 'sudoku': 3382, 'nards': 3383, 'things': 3384, 'swatch': 3385, \"yieldin'\": 3386, 'duel': 3387, 'sensible': 3388, 'little_hibbert_girl:': 3389, 'mumble': 3390, \"friend's\": 3391, 'dramatic': 3392, 'christian': 3393, 'shyly': 3394, 'hop': 3395, \"aren't\": 3396, 'furiously': 3397, 'kisses': 3398, 'quitcher': 3399, 'bumped': 3400, 'fell': 3401, 'answering': 3402, 'bucket': 3403, 'speak': 3404, 'need': 3405, 'continuum': 3406, 'cut': 3407, 'sent': 3408, 'mushy': 3409, 'wiggum': 3410, 'doug:': 3411, 'kissing': 3412, 'sadistic_barfly:': 3413, 'if': 3414, 'appalled': 3415, 'positive': 3416, 'glyco-load': 3417, 'civil': 3418, 'arab_man:': 3419, 'coupon': 3420, 'starlets': 3421, 'chance': 3422, 'abusive': 3423, 'youngsters': 3424, 'stupidly': 3425, 'compressions': 3426, 'dogs': 3427, 'celebration': 3428, 'salt': 3429, 'tip': 3430, 'customers-slash-only': 3431, 'network': 3432, 'ah': 3433, 'jacques': 3434, 'minors': 3435, 'shareholder': 3436, 'wagering': 3437, 'curiosity': 3438, 'fears': 3439, 'benefits': 3440, 'spot': 3441, 'remembering': 3442, 'brunch': 3443, 'stained-glass': 3444, 'cooker': 3445, 'gee': 3446, 'oddest': 3447, 'county': 3448, 'thirty': 3449, 'libraries': 3450, 'midnight': 3451, 'hitler': 3452, 'howya': 3453, 'sometime': 3454, 'versus': 3455, 'together': 3456, 'sauce': 3457, 'slim': 3458, \"liberty's\": 3459, \"kid's\": 3460, 'municipal': 3461, 'whale': 3462, 'powered': 3463, 'grenky': 3464, 'scotch': 3465, 'stink': 3466, 'doreen:': 3467, 'women': 3468, 'sees/': 3469, 'theatah': 3470, 'sadly': 3471, 'pick': 3472, 'generously': 3473, 'beloved': 3474, \"poisonin'\": 3475, 'badge': 3476, 'maggie': 3477, 'worst': 3478, 'popping': 3479, 'exchange': 3480, 'sit': 3481, 'covering': 3482, 'renovations': 3483, 'befouled': 3484, 'kennedy': 3485, 'hi': 3486, 'homer_doubles:': 3487, 'filled': 3488, 'simon': 3489, 'macbeth': 3490, 'unlike': 3491, 'natured': 3492, 'wolveriskey': 3493, 'according': 3494, 'cavern': 3495, \"floatin'\": 3496, \"father's\": 3497, 'dies': 3498, 'killing': 3499, 'temporarily': 3500, 'albert': 3501, 'sounds': 3502, 'exultant': 3503, \"drawin'\": 3504, 'needed': 3505, 'los': 3506, 'presently': 3507, 'round': 3508, 'enemy': 3509, 'starts': 3510, 'telling': 3511, 'tradition': 3512, 'duffed': 3513, 'books': 3514, 'maher': 3515, 'making': 3516, 'longer': 3517, \"wife's\": 3518, 'ran': 3519, 'cutest': 3520, 'then': 3521, 'shoes': 3522, 'hideous': 3523, '3rd_voice:': 3524, 'e-z': 3525, 'labor': 3526, 'cartoons': 3527, 'drink': 3528, \"rentin'\": 3529, 'justify': 3530, \"ma's\": 3531, 'irish': 3532, 'shocked': 3533, 'heartily': 3534, 'afford': 3535, 'blend': 3536, 'smooth': 3537, 'spiritual': 3538, 'shindig': 3539, 'knowingly': 3540, 'worldly': 3541, 'moment': 3542, 'cable': 3543, 'malibu': 3544, \"sayin'\": 3545, 'spending': 3546, \"monroe's\": 3547, \"you're\": 3548, '4x4': 3549, 'mmm': 3550, 'snackie': 3551, 'eurotrash': 3552, 'coin': 3553, 'sagely': 3554, 'hmf': 3555, 'canyonero': 3556, 'film': 3557, 'tab': 3558, 'saturday': 3559, 'territorial': 3560, 'accidents': 3561, 'relationship': 3562, \"life's\": 3563, 'pickles': 3564, 'left': 3565, 'cough': 3566, 'yourself': 3567, 'buyer': 3568, 'could': 3569, 'hurt': 3570, 'freedom': 3571, 'shows': 3572, 'goodwill': 3573, 'pain': 3574, 'anyhow': 3575, 'grunt': 3576, 'jerking': 3577, 'stopped': 3578, 'the_edge:': 3579, 'languages': 3580, 'reopen': 3581, 'trench': 3582, 'average': 3583, 'writing': 3584, 'acquaintance': 3585, 'burg': 3586, 'aid': 3587, 'brine': 3588, 'actually': 3589, '6': 3590, \"dad's\": 3591, 'kim_basinger:': 3592, 'shortcomings': 3593, 'ticks': 3594, 'heart': 3595, 'hit': 3596, 'meeting': 3597, \"football's\": 3598, 'buffalo': 3599, 'yesterday': 3600, 'prank': 3601, 'married': 3602, 'tree': 3603, \"haven't\": 3604, 'ralph_wiggum:': 3605, 'kissingher': 3606, 'cure': 3607, 'lookalikes': 3608, 'created': 3609, 'entire': 3610, 'beyond': 3611, 'irishman': 3612, \"payin'\": 3613, 'offense': 3614, 'copy': 3615, \"springfield's\": 3616, 'pronto': 3617, 'comic': 3618, 'diamond': 3619, 'burglary': 3620, 'grumbling': 3621, 'blossoming': 3622, 'barter': 3623, 'whoops': 3624, 'sharity': 3625, 'serum': 3626, 'fat': 3627, 'anger': 3628, 'painted': 3629, 'bender:': 3630, 'duty': 3631, 'normals': 3632, 'arrived': 3633, 'delts': 3634, 'roller': 3635, 'eggshell': 3636, 'thinking': 3637, 'powers': 3638, 'naively': 3639, 'look': 3640, \"what're\": 3641, 'squeezed': 3642, 'life': 3643, 'showing': 3644, 'gargoyle': 3645, 'droning': 3646, 'dr': 3647, 'dan': 3648, 'process': 3649, 'one-hour': 3650, 'pepsi': 3651, 'man_with_crazy_beard:': 3652, 'noose': 3653, 'likes': 3654, 'w': 3655, 'burn': 3656, 'ale': 3657, 'britannia': 3658, 'weekend': 3659, 'ecru': 3660, 'pink': 3661, 'tha': 3662, 'videotaped': 3663, 'researching': 3664, 'awe': 3665, \"fryer's\": 3666, 'beers': 3667, 'does': 3668, 'warned': 3669, 'amber': 3670, 'tony': 3671, 'laney_fontaine:': 3672, 'rob': 3673, 'exactly': 3674, 'stupidest': 3675, 'associate': 3676, 'nightmare': 3677, 'ahh': 3678, 'scientific': 3679, 'silent': 3680, 'simultaneous': 3681, 'looking': 3682, 'recent': 3683, \"neat's-foot\": 3684, 'clothespins:': 3685, 'ron': 3686, 'calm': 3687, 'talk': 3688, 'against': 3689, 'outta': 3690, \"costume's\": 3691, 'monkeyshines': 3692, 'exclusive:': 3693, 'cigars': 3694, 'blissful': 3695, 'root': 3696, 'pusillanimous': 3697, 'hiya': 3698, 'lou': 3699, 'lie': 3700, 'kid': 3701, 'selective': 3702, 'reporter': 3703, 'gonna': 3704, 'metal': 3705, 'urge': 3706, 'game': 3707, 'dee-fense': 3708, 'shriners': 3709, 'hafta': 3710, 'eighty-seven': 3711, 'heather': 3712, 'watching': 3713, 'arm-pittish': 3714, 'noticing': 3715, 'random': 3716, 'rebuttal': 3717, 'choice': 3718, 'however': 3719, 'flips': 3720, 'wrestle': 3721, 'sun': 3722, 'play': 3723, 'agree': 3724, 'slays': 3725, 'extremely': 3726, 'dishrag': 3727, 'nantucket': 3728, 'homesick': 3729, \"dyin'\": 3730, 'most': 3731, 'freeze': 3732, 'ratted': 3733, 'musketeers': 3734, 'laughing': 3735, 'aggravated': 3736, 'twenty-two': 3737, 'was': 3738, 'rolling': 3739, 'us': 3740, 'professional': 3741, 'getup': 3742, 'proper': 3743, 'limber': 3744, 'scam': 3745, 'part': 3746, 'smile:': 3747, 'teenage_homer:': 3748, 'cream': 3749, 'wealthy': 3750, 'get': 3751, 'kills': 3752, 'socratic': 3753, 'pinball': 3754, 'priest': 3755, 'cola': 3756, 'expecting': 3757, 'zone': 3758, 'you': 3759, 'helpless': 3760, 'sloe': 3761, 'causes': 3762, 'grammys': 3763, 'dignity': 3764, 'cotton': 3765, 'magnanimous': 3766, 'planted': 3767, 'straighten': 3768, 'polls': 3769, 'butts': 3770, 'contest': 3771, \"buffalo's\": 3772, 'guzzles': 3773, \"i'm-so-stupid\": 3774, 'backing': 3775, 'robin': 3776, 'idiot': 3777, 'grim': 3778, 'thorn': 3779, 'muertos': 3780, 'clearly': 3781, 'train': 3782, 'dash': 3783, 'royal': 3784, 'solved': 3785, 'swig': 3786, 'had': 3787, 'knees': 3788, 'handoff': 3789, 'all:': 3790, 'rummy': 3791, 'gator:': 3792, 'sponsor': 3793, 'tyson/secretariat': 3794, 'tickets': 3795, \"weren't\": 3796, 'depression': 3797, 'dollface': 3798, \"shouldn't\": 3799, 'moxie': 3800, \"pickin'\": 3801, 'marmaduke': 3802, 'pepper': 3803, 'kenny': 3804, 'black': 3805, 'whispers': 3806, 'teeth': 3807, 'delicious': 3808, 'disco': 3809, 'sugar-free': 3810, 'gregor': 3811, 'sodas': 3812, 'pontiff': 3813, 'strap': 3814, \"speakin'\": 3815, 'switch': 3816, 'word': 3817, 'quimby_#2:': 3818, 'changes': 3819, 'darjeeling': 3820, 'hugh': 3821, 'inherent': 3822, 'appreciate': 3823, 'thirsty': 3824, 'cent': 3825, 'rice': 3826, 'killarney': 3827, 'castle': 3828, 'l': 3829, 'can': 3830, 'seats': 3831, 'quit': 3832, 'horrified': 3833, 'life:': 3834, 'ehhhhhh': 3835, 'poorer': 3836, 'midge': 3837, 'schemes': 3838, 'smells': 3839, 'raking': 3840, 'goods': 3841, 'hearse': 3842, 'tiger': 3843, \"now's\": 3844, 'workers': 3845, 'forget-me-drinks': 3846, 'choose': 3847, 'hooray': 3848, 'milk': 3849, 'invited': 3850, 'xanders': 3851, 'bartender': 3852, 'moan': 3853, 'remain': 3854, 'boisterous': 3855, 'closed': 3856, 'faiths': 3857, 'comeback': 3858, 'ultimate': 3859, 'vulgar': 3860, 'statesmanlike': 3861, 'industry': 3862, 'health': 3863, \"queen's\": 3864, 'promised': 3865, 'ram': 3866, 'trees': 3867, 'half-back': 3868, 'bottom': 3869, 'fistiana': 3870, \"doin'\": 3871, 'bottomless': 3872, 'bedbugs': 3873, 'shaky': 3874, 'poplar': 3875, 'babar': 3876, 'paramedic:': 3877, 'three-man': 3878, 'disturbance': 3879, 'dictating': 3880, 'nickels': 3881, 'checks': 3882, 'jägermeister': 3883, 'four-drink': 3884, 'spare': 3885, 'bring': 3886, 'down': 3887, 'theatrical': 3888, 'five': 3889, 'selling': 3890, 'one': 3891, 'twelve-step': 3892, 'brilliant': 3893, 'language': 3894, 'sacrifice': 3895, 'tanked-up': 3896, 'cushions': 3897, 'mission': 3898, 'off': 3899, 'philosophical': 3900, 'pilsner-pusher': 3901, 'rods': 3902, 'whoa-ho': 3903, 'peeping': 3904, 'prolonged': 3905, 'mild': 3906, 'son-of-a': 3907, 'girl': 3908, 'picture': 3909, 'stays': 3910, 'aisle': 3911, 'join': 3912, 'this': 3913, 'snorts': 3914, 'pretentious_rat_lover:': 3915, 'charge': 3916, 'be-stainèd': 3917, 'bills': 3918, 'statues': 3919, 'koholic': 3920, 'morning': 3921, 'new_health_inspector:': 3922, 'subscriptions': 3923, 'when': 3924, 'gentleman:': 3925, 'ping-pong': 3926, 'guts': 3927, 'generosity': 3928, 'stir': 3929, \"brockman's\": 3930, 'grinch': 3931, 'bag': 3932, 'santeria': 3933, 'twelve': 3934, 'mudflap': 3935, 'ye': 3936, 'roses': 3937, 'stagehand:': 3938, 'are': 3939, 'feld': 3940, 'tree_hoper:': 3941, 'admiration': 3942, 'vulnerable': 3943, 'sugar': 3944, 'wordloaf': 3945, 'dumb-asses': 3946, 'slugger': 3947, 'kent_brockman:': 3948, 'french': 3949, \"o'reilly\": 3950, 'bunch': 3951, 'joined': 3952, 'gut': 3953, 'suspect': 3954, 'fishing': 3955, 'frog': 3956, 'carney': 3957, 'emporium': 3958, 'marvelous': 3959, 'squirrels': 3960, 'fritz': 3961, 'mathis': 3962, 'legs:': 3963, 'flailing': 3964, 'myself': 3965, 'dang': 3966, 'barney_gumble:': 3967, 'chuckle': 3968, 'wrong': 3969, 'suave': 3970, 'prep': 3971, 'bright': 3972, 'nonchalant': 3973, 'queen': 3974, 'none': 3975, 'politician': 3976, 'supervising': 3977, 'procedure': 3978, 'bulked': 3979, 'milhouse': 3980, 'oopsie': 3981, 'crab': 3982, 'ha': 3983, 'na': 3984, 'realizing': 3985, 'mellow': 3986, 'dealie': 3987, 'it:': 3988, 'heavyset': 3989, 'spreads': 3990, 'linda_ronstadt:': 3991, 'multi-national': 3992, 'weirded-out': 3993, 'rockers': 3994, 'blame': 3995, 'tommy': 3996, 'expired': 3997, 'brooklyn': 3998, 'imaginary': 3999, 'sell': 4000, \"leavin'\": 4001, 'alibi': 4002, 'allegiance': 4003, 'rivalry': 4004, 'producers': 4005, 'country-fried': 4006, 'probably': 4007, \"talkin'\": 4008, 'employees': 4009, 'usually': 4010, 'luckiest': 4011, 'up-bup-bup': 4012, 'revenge': 4013, 'ever': 4014, 'lenny': 4015, 'adult': 4016, 'dropping': 4017, 'tape': 4018, 'ohhhh': 4019, 'ahead': 4020, 'save': 4021, 'bathing': 4022, 'lloyd:': 4023, 'wow': 4024, 'owner': 4025, 'nahasapeemapetilon': 4026, 'attempting': 4027, 'justice': 4028, 'couch': 4029, 'orgasmville': 4030, 'dislike': 4031, 'repay': 4032, 'fluoroscope': 4033, 'brick': 4034, 'sorts': 4035, 'investor': 4036, 'teriyaki': 4037, 'cobbling': 4038, 'slightly': 4039, 'developed': 4040, 'today/': 4041, 'wondered': 4042, 'wholeheartedly': 4043, 'sheriff': 4044, \"hawkin'\": 4045, 'additional-seating-capacity': 4046, 'ugh': 4047, 'pardon': 4048, 'starla': 4049, 'doof': 4050, 'neanderthal': 4051, 'bike': 4052, 'occupied': 4053, 'acquitted': 4054, 'sumatran': 4055, 'lindsay_naegle:': 4056, 'habit': 4057, 'terrorizing': 4058, 'rom': 4059, 'walked': 4060, 'fuhgetaboutit': 4061, 'what': 4062, 'advice': 4063, 'hotel': 4064, 'doctor': 4065, 'plum': 4066, 'easy': 4067, 'queer': 4068, 'soothing': 4069, \"tootin'\": 4070, 'laney': 4071, 'jimmy': 4072, 'stolen': 4073, 'placed': 4074, 'aghast': 4075, 'scarf': 4076, 'race': 4077, 'peter_buck:': 4078, 'leg': 4079, 'muscle': 4080, 'forgot': 4081, 'courage': 4082, 'missed': 4083, 'wild': 4084, 'addiction': 4085, 'motorcycle': 4086, 'lachrymose': 4087, 'diving': 4088, 'suburban': 4089, \"tab's\": 4090, 'convenient': 4091, 'ripper': 4092, 'jovial': 4093, 'cute': 4094, 'artie': 4095, 'local': 4096, \"city's\": 4097, \"aristotle's\": 4098, 'under': 4099, 'champion': 4100, 'cannoli': 4101, 'seamstress': 4102, 'bit': 4103, 'rafter': 4104, 'squashing': 4105, 'retired': 4106, 'lookalike:': 4107, 'experiments': 4108, 'solely': 4109, \"man's_voice:\": 4110, 'owned': 4111, 'eleven': 4112, 'punkin': 4113, 'flat': 4114, 'beard': 4115, 'nightmares': 4116, 'forehead': 4117, 'busy': 4118, 'loneliness': 4119, 'colonel:': 4120, 'laughter': 4121, 'each': 4122, 'loafers': 4123, 'louder': 4124, 'poison': 4125, 'steely-eyed': 4126, 'routine': 4127, 'crap': 4128, 'delighted': 4129, 'release': 4130, 'sings': 4131, 'low-life': 4132, 'sits': 4133, 'influence': 4134, \"hasn't\": 4135, 'accelerating': 4136, 'fun': 4137, 'america': 4138, 'pep': 4139, 'nagurski': 4140, 'mocking': 4141, 'leno': 4142, 'eva': 4143, 'hibbert': 4144, 'bolting': 4145, 'freshened': 4146, 'running': 4147, 'andalay': 4148, '530': 4149, 'gunter:': 4150, 'sweetest': 4151, 'recorded': 4152, 'heaving': 4153, 'normal': 4154, 'cooking': 4155, 'knuckles': 4156, 'above': 4157, 'clone': 4158, 'frenchman': 4159, \"children's\": 4160, 'sedaris': 4161, 'bulldozing': 4162, 'am': 4163, 'holy': 4164, 'memories': 4165, 'ear': 4166, 'reliable': 4167, 'laid': 4168, 'wieners': 4169, 'startled': 4170, 'stalking': 4171, 'porn': 4172, 'issuing': 4173, 'booze': 4174, 'risqué': 4175, \"dog's\": 4176, 'bunion': 4177, 'wangs': 4178, 'afraid': 4179, \"cleanin'\": 4180, \"o'clock\": 4181, \"it'd\": 4182, 'hero-phobia': 4183, 'seething': 4184, 'knows': 4185, 'stores': 4186, 'urban': 4187, \"neighbor's\": 4188, 'firmly': 4189, 'working': 4190, 'sweet': 4191, 'interested': 4192, 'compare': 4193, 'future': 4194, 'killer': 4195, 'irrelevant': 4196, 'bursts': 4197, 'terrifying': 4198, 'source': 4199, 'struggling': 4200, 'also': 4201, 'next': 4202, 'although': 4203, 'wad': 4204, 'brotherhood': 4205, 'lurleen_lumpkin:': 4206, 'apu_nahasapeemapetilon:': 4207, 'snake-handler': 4208, \"pope's\": 4209, 'fad': 4210, 'willy': 4211, \"coaster's\": 4212, 'salvation': 4213, \"i've\": 4214, 'hate-hugs': 4215, 'bobo': 4216, 'pugilist': 4217, 'aiden': 4218, 'list': 4219, 'ton': 4220, 'present': 4221, 'sleigh-horses': 4222, 'napkins': 4223, 'vicious': 4224, 'pin': 4225, 'oh-so-sophisticated': 4226, 'stones': 4227, 'hears': 4228, 'dry': 4229, 'insist': 4230, \"somethin':\": 4231, 'mexicans': 4232, 'please': 4233, 'embarrassed': 4234, 'sexual': 4235, 'xx': 4236, 'evergreen': 4237, 'marguerite:': 4238, 'exquisite': 4239, 'strolled': 4240, 'thirteen': 4241, 'edna_krabappel-flanders:': 4242, 'puts': 4243, \"he's\": 4244, 'grampa_simpson:': 4245, 'hippies': 4246, 'cloudy': 4247, 'goes': 4248, 'groin': 4249, 'joey_kramer:': 4250, 'sweden': 4251, 'head': 4252, 'losers': 4253, 'infor': 4254, '<comma>': 4255, 'filed': 4256, \"who'll\": 4257, 'lock': 4258, 'average-looking': 4259, 'bar:': 4260, 'manuel': 4261, \"i'll\": 4262, 'sleep': 4263, 'eminence': 4264, 'underwear': 4265, 'dawning': 4266, 'hotline': 4267, 'smile': 4268, 'fancy': 4269, \"bartender's\": 4270, 'bags': 4271, 'pageant': 4272, 'miserable': 4273, 'caper': 4274, 'pleasure': 4275, 'view': 4276, 'sec': 4277, 'third': 4278, 'annoying': 4279, 'carll': 4280, 'measure': 4281, 'vomit': 4282, 'fletcherism': 4283, 'fans': 4284, 'heavyweight': 4285, 'absentminded': 4286, 'more': 4287, 'bullet-proof': 4288, 'riding': 4289, 'doy': 4290, 'donated': 4291, 'point': 4292, 'nailed': 4293, 'forbids': 4294, 'neither': 4295, 'leans': 4296, 'ugliest': 4297, 'expect': 4298, 'twerpy': 4299, 'chained': 4300, 'f': 4301, \"narratin'\": 4302, 'agnes_skinner:': 4303, 'realized': 4304, 'hoped': 4305, 'officials': 4306, 'beats': 4307, 'comes': 4308, 'alright': 4309, 'wise': 4310, 'bits': 4311, 'forgets': 4312, 'sooo': 4313, 'grrrreetings': 4314, 'caught': 4315, 'lainie:': 4316, 'campaign': 4317, 'securities': 4318, 'evils': 4319, 'nudge': 4320, 'tapping': 4321, '_timothy_lovejoy:': 4322, 'stirring': 4323, \"where'd\": 4324, \"that'll\": 4325, 'go': 4326, 'housing': 4327, 'golf': 4328, 'mmm-hmm': 4329, 'whistling': 4330, 'arrest': 4331, 'backward': 4332, 'uses': 4333, 'fraud': 4334, 'wooooo': 4335, 'sales': 4336, 'taps': 4337, 'patty_bouvier:': 4338, 'cares': 4339, 'aged_moe:': 4340, 'lush': 4341, 'sabermetrics': 4342, 'distaste': 4343, 'aquafresh': 4344, 'superdad': 4345, \"cuckold's\": 4346, 'smoke': 4347, 'sickly': 4348, 'stick': 4349, 'choked': 4350, 'heartless': 4351, '<exclamation_mark>': 4352, 'read:': 4353, 'presses': 4354, 'rub': 4355, 'haiti': 4356, 'pigtown': 4357, 'confident': 4358, 'psst': 4359, 'anti-crime': 4360, 'unbelievably': 4361, 'seductive': 4362, 'annoyed': 4363, 'pour': 4364, 'boxing': 4365, 'logos': 4366, 'sexy': 4367, 'suspenders': 4368, 'once': 4369, \"bart'd\": 4370, 'utility': 4371, 'filthy': 4372, 'disdainful': 4373, 'scratching': 4374, 'ab': 4375, 'gift:': 4376, 'unattended': 4377, 'tongue': 4378, 'beneath': 4379, 'wishful': 4380, 'transmission': 4381, 'handshake': 4382, 'gotcha': 4383, 'stop': 4384, 'nos': 4385, '_julius_hibbert:': 4386, 'while': 4387, \"'\": 4388, 'photos': 4389, 'geysir': 4390, 'movie': 4391, 'prettiest': 4392, 'dateline': 4393, 'offshoot': 4394, 'emphasis': 4395, 'fudd': 4396, 'built': 4397, 'sneak': 4398, 'shaker': 4399, 'hampstead-on-cecil-cecil': 4400, 'fired': 4401, 'stay-puft': 4402, 'spews': 4403, 'tactful': 4404, 'rotch': 4405, 'beating': 4406, 'during': 4407, 'bury': 4408, 'ees': 4409, 'blurbs': 4410, 'vengeance': 4411, 'hemorrhage-amundo': 4412, 'waste': 4413, 'felony': 4414, 'lurleen': 4415, 'hygienically': 4416, 'vampires': 4417, 'peabody': 4418, 'funny': 4419, 'champs': 4420, 'thousand-year': 4421, \"dimwit's\": 4422, 'sidekick': 4423, 'starving': 4424, 'quimbys:': 4425, 'lou:': 4426, 'supposed': 4427, \"drivin'\": 4428, 'fledgling': 4429, 'hang': 4430, 'overturned': 4431, 'transfer': 4432, 'police': 4433, 'wipe': 4434, 'on': 4435, 'alfred': 4436, 'hungry': 4437, 'sheepish': 4438, 'tough': 4439, 'jolly': 4440, 'snail': 4441, \"startin'\": 4442, 'presided': 4443, 'adequate': 4444, \"others'\": 4445, \"they've\": 4446, 'authenticity': 4447, 'including': 4448, 'rife': 4449, '7-year-old_brockman:': 4450, 'looser': 4451, 'remembers': 4452, 'chuckling': 4453, 'schizophrenia': 4454, 'shrieks': 4455, 'barkeep': 4456, 'diablo': 4457, 'princesses': 4458, 'slender': 4459, 'tv': 4460, 'costume': 4461, 'totally': 4462, \"wouldn't-a\": 4463, 'alcoholism': 4464, 'patient': 4465, 'virility': 4466, 'half-day': 4467, 'awed': 4468, 'formico:': 4469, 'gary_chalmers:': 4470, 'talking': 4471, 'gentle': 4472, 'wigs': 4473, \"homer's_brain:\": 4474, \"renee's\": 4475, 'complete': 4476, 'femininity': 4477, 'la': 4478, 'endorsed': 4479, 'back': 4480, 'sneering': 4481, 'burt_reynolds:': 4482, 'bash': 4483, 'vehicle': 4484, 'test': 4485, \"puttin'\": 4486, 'incapable': 4487, 'wha': 4488, 'ralph': 4489, 'blown': 4490, 'public': 4491, 'cummerbund': 4492, 'cans': 4493, \"hell's\": 4494, 'liver': 4495, 'dana_scully:': 4496, 'eyesore': 4497, 'helpful': 4498, 'moe-near-now': 4499, 'no': 4500, 'fausto': 4501, 'anti-intellectualism': 4502, 'negative': 4503, 'el': 4504, 'mrs': 4505, '1895': 4506, 'adjourned': 4507, \"livin'\": 4508, 'powerful': 4509, 'academy': 4510, 'drawn': 4511, \"wino's\": 4512, 'refreshment': 4513, 'clown-like': 4514, 'war': 4515, 'helping': 4516, 'plums': 4517, 'skin': 4518, 'absolut': 4519, \"waitin'\": 4520, 'puke': 4521, 'souped': 4522, 'pointy': 4523, 'feast': 4524, \"cheerin'\": 4525, 'nucular': 4526, 'p': 4527, 'put': 4528, \"president's\": 4529, 'inclination': 4530, 'raccoons': 4531, 'bouquet': 4532, 'buttons': 4533, 'stretch': 4534, 'hooch': 4535, 'watered': 4536, 'surprising': 4537, 'wooden': 4538, 'makes': 4539, 'happily': 4540, 'las': 4541, 'roomy': 4542, 'tastes': 4543, 'bluff': 4544, 'gunk': 4545, 'poking': 4546, 'refreshingness': 4547, 'over': 4548, 'disposal': 4549, 'othello': 4550, 'oblongata': 4551, 'ivy-covered': 4552, \"industry's\": 4553, 'heading': 4554, 'space': 4555, 'cakes': 4556, 'manboobs': 4557, 'cerebral': 4558, 'mabel': 4559, 'worried': 4560, 'easter': 4561, 'skunk': 4562, 'patrons': 4563, 'election': 4564, 'scrape': 4565, 'carolina': 4566, 'richard:': 4567, 'woodchucks': 4568, 'philip': 4569, 'detecting': 4570, 'pine': 4571, 'guiltily': 4572, 'rainier': 4573, 'bigger': 4574, 'journey': 4575, 'pillows': 4576, 'drawing': 4577, 'known': 4578, \"team's\": 4579, 'literature': 4580, 'rector': 4581, 'mckinley': 4582, 'burning': 4583, 'rump': 4584, 'girlfriend': 4585, 'comforting': 4586, 'seem': 4587, 'cop': 4588, 'marry': 4589, '1973': 4590, 'exhaust': 4591, 'hellhole': 4592, 'southern': 4593, 'mob': 4594, 'confused': 4595, 'distinct': 4596, 'pity': 4597, 'joking': 4598, 'wally': 4599, 'radioactive': 4600, \"workin'\": 4601, 'potatoes': 4602, 'shesh': 4603, 'further': 4604, 'creme': 4605, 'drug': 4606, 'hottest': 4607, 'deals': 4608, 'treats': 4609, 'drunkening': 4610, 'sing': 4611, 'considers': 4612, \"she's\": 4613, 'waltz': 4614, 'beligerent': 4615, 'relative': 4616, 'lenford': 4617, 'milks': 4618, 'menlo': 4619, 'admiring': 4620, 'my': 4621, 'power': 4622, \"ridin'\": 4623, 'away': 4624, 'dingy': 4625, \"that's\": 4626, 'nordiques': 4627, '<new_line>': 4628, 'snotty': 4629, 'venture': 4630, 'though:': 4631, 'wishing': 4632, 'chug-a-lug': 4633, 'ignoring': 4634, 'takes': 4635, 'discriminate': 4636, 'honor': 4637, 'died': 4638, 'publish': 4639, 'wants': 4640, 'gums': 4641, 'radiation': 4642, 'enlightened': 4643, 'cowboy': 4644, 'glowers': 4645, 'met': 4646, 'vacation': 4647, 'noises': 4648, 'brains': 4649, 'solid': 4650, 'love-matic': 4651, 'candidate': 4652, 'len-ny': 4653, 'hates': 4654, 'newsletter': 4655, 'common': 4656, 'seeing': 4657, 'buzz': 4658, 'newest': 4659, 'means': 4660, 'energy': 4661, 'fools': 4662, 'country': 4663, 'cases': 4664, '3': 4665, 'casting': 4666, 'manipulation': 4667, '2nd_voice_on_transmitter:': 4668, 'mostrar': 4669, 'clothespins': 4670, 'crew': 4671, 'care': 4672, 'calmly': 4673, 'disapproving': 4674, 'henry': 4675, 'mostly': 4676, 'home': 4677, 'fox_mulder:': 4678, 'breakfast': 4679, 'unattractive': 4680, 'kidney': 4681, 'poetry': 4682, 'prettied': 4683, 'easy-going': 4684, 'european': 4685, 'vestigial': 4686, 'all-american': 4687, 'precious': 4688, 'tv-station_announcer:': 4689, 'assert': 4690, 'shuts': 4691, 'teen': 4692, \"tramp's\": 4693, 'dan_gillick:': 4694, 'behavior': 4695, 'naturally': 4696, 'though': 4697, 'raggie': 4698, 'nevada': 4699, 'cesss': 4700, 'aziz': 4701, 'sternly': 4702, 'broncos': 4703, 'urinal': 4704, 'year': 4705, 'mccall': 4706, 'someone': 4707, 'second': 4708, 'whole': 4709, 'atari': 4710, \"cashin'\": 4711, 'goal': 4712, 'admit': 4713, 'robot': 4714, 'good-looking': 4715, 'half-beer': 4716, 'she': 4717, 'popped': 4718, 'box': 4719, 'ironed': 4720, 'brassiest': 4721, 'skinner': 4722, 'face': 4723, 'jokes': 4724, 'self-centered': 4725, 'zack': 4726, 'oil': 4727, 'allowance': 4728, 'my-y-y-y-y-y': 4729, 'page': 4730, 'idiots': 4731, 'danny': 4732, 'microbrew': 4733, 'favorite': 4734, 'shame': 4735, 'happier': 4736, 'weird': 4737, 'fire_inspector:': 4738, 'recap:': 4739, 'meatpies': 4740, 'airport': 4741, '21': 4742, 'speech': 4743, 'heart-broken': 4744, 'trivia': 4745, 'burns': 4746, 'anything': 4747, 'tie': 4748, 'part-time': 4749, 'savagely': 4750, 'perverse': 4751, 'gig': 4752, 'hundred': 4753, 'finally': 4754, 'missing': 4755, 'confession': 4756, 'ideas': 4757, 'catch-phrase': 4758, 'dumptruck': 4759, 'marge_simpson:': 4760, 'wham': 4761, '<question_mark>': 4762, 'sweaty': 4763, 'anarchy': 4764, 'sister': 4765, 'ape-like': 4766, 'hugh:': 4767, 'twenty-four': 4768, 'colorado': 4769, 'abolish': 4770, 'chest': 4771, 'mitts': 4772, 'innocent': 4773, 'control': 4774, 'boozy': 4775, 'who-o-oa': 4776, 'chocolate': 4777, 'begins': 4778, 'polygon': 4779, '_kissingher:': 4780, 'unfamiliar': 4781, 'smugglers': 4782, 'dashes': 4783, 'cologne': 4784, 'mafia': 4785, 'bauer': 4786, 'woooooo': 4787, 'premise': 4788, 'data': 4789, 'begging': 4790, 'alter': 4791, 'rough': 4792, \"show's\": 4793, 'exciting': 4794, 'repeated': 4795, 'painless': 4796, 'steamed': 4797, 'hoo': 4798, 'unbelievable': 4799, 'si-lent': 4800, 'address': 4801, 'soaked': 4802, \"bladder's\": 4803, 'sport': 4804, 'mimes': 4805, 'driver': 4806, 'event': 4807, 'pleasant': 4808, 'tow': 4809, 'squirrel': 4810, \"patrick's\": 4811, 's-a-u-r-c-e': 4812, 'bridges': 4813, 'manjula': 4814, \"elmo's\": 4815, 'quotes': 4816, \"what'sa\": 4817, 'furniture': 4818, 'text': 4819, 'bust': 4820, 'super': 4821, 'hail': 4822, 'throws': 4823, 'numeral': 4824, 'fink': 4825, 'romantic': 4826, 'raging': 4827, 'catholic': 4828, 'japanese': 4829, 'driveability': 4830, 'head-gunk': 4831, 'over-pronouncing': 4832, 'distraught': 4833, 'why': 4834, \"don'tcha\": 4835, 'saving': 4836, 'stumble': 4837, \"somebody's\": 4838, 'monster': 4839, 'ew': 4840, 'motor': 4841, 'nfl_narrator:': 4842, 'white_rabbit:': 4843, 'world': 4844, 'grandkids': 4845, 'much': 4846, 'mr': 4847, 'barely': 4848, 'pulled': 4849, 'is': 4850, \"who's\": 4851, 'maude': 4852, 'kissed': 4853, 'ground': 4854, 'wheels': 4855, 'audience:': 4856, 'tomahto': 4857, 'private': 4858, 'eliminate': 4859, 'heavens': 4860, \"tatum'll\": 4861, 'sat': 4862, \"plank's\": 4863, 'confidence': 4864, 'decadent': 4865, 'plane': 4866, 'door': 4867, 'twelveball': 4868, 'read': 4869, 'u': 4870, 'bride': 4871, 'moonshine': 4872, 'jeers': 4873, 'anyway': 4874, 'nascar': 4875, 'lead': 4876, 'sanitation': 4877, 'funds': 4878, 'warmth': 4879, 'march': 4880, 'cell-ee': 4881, 'overflowing': 4882, 'ali': 4883, 'billy_the_kid:': 4884, 'freaking': 4885, 'super-genius': 4886, 'nickel': 4887, 'militia': 4888, 'salad': 4889, 'improv': 4890, \"wearin'\": 4891, 'opening': 4892, 'problems': 4893, 'fiiiiile': 4894, 'gus': 4895, 'uneasy': 4896, 'roz': 4897, 'pantsless': 4898, 'fuzzlepitch': 4899, 'maya:': 4900, 'strawberry': 4901, 'ziff': 4902, 'friend': 4903, 'musses': 4904, 'after': 4905, 'dead': 4906, 'travel': 4907, 'goo': 4908, 'dint': 4909, 'affectations': 4910, 'lungs': 4911, 'drederick': 4912, 'manjula_nahasapeemapetilon:': 4913, 'swine': 4914, 'nah': 4915, 'accident': 4916, 'measurements': 4917, 'aged': 4918, 'lifetime': 4919, 'up': 4920, \"moe's\": 4921, 'wok': 4922, 'test-': 4923, 'trashed': 4924, 'hot': 4925, 'uniforms': 4926, 'worry': 4927, 'tow-joes': 4928, 'later': 4929, 'sunglasses': 4930, 'state': 4931, 'moon': 4932, 'sleeps': 4933, 'domestic': 4934, 'reynolds': 4935, 'smiling': 4936, 'respect': 4937, 'bob': 4938, 'gag': 4939, 'sisters': 4940, 'rapidly': 4941, 'tuborg': 4942, 'teddy': 4943, 'longest': 4944, 'pinchpenny': 4945, 'resigned': 4946, 'called': 4947, 'kindly': 4948, \"nothin'\": 4949, 'grabbing': 4950, 'understood:': 4951, 'by': 4952, 'regretful': 4953, 'outs': 4954, 'buffet': 4955, 'yelling': 4956, 'because': 4957, 'pockets': 4958, 'nelson_muntz:': 4959, 'cowboys': 4960, 'hoping': 4961, 'mccarthy': 4962, 'mom': 4963, 'grammy': 4964, 'decision': 4965, 'stored': 4966, 'shoulders': 4967, 'goodnight': 4968, 'hans:': 4969, 'nectar': 4970, 'ding-a-ding-ding-a-ding-ding': 4971, 'victorious': 4972, 'miss_lois_pennycandy:': 4973, 'blows': 4974, 'visas': 4975, 'dress': 4976, 'hope': 4977, 'what-for': 4978, 'consoling': 4979, 'dismissive': 4980, 'flashing': 4981, 'africanized': 4982, 'delivery': 4983, 'religion': 4984, 'frankenstein': 4985, 'rickles': 4986, 'hard': 4987, 'u2:': 4988, 'miracle': 4989, 'drive': 4990, 'safely': 4991, 'clipped': 4992, 'beards': 4993, 'birthday': 4994, 'criminal': 4995, 'magazine': 4996, 'rig': 4997, 'para': 4998, 'chill': 4999, 'homeless': 5000, 'sunday': 5001, 'cheery': 5002, 'able': 5003, 'premiering': 5004, 'roach': 5005, 'balloon': 5006, 'ratio': 5007, 'saint': 5008, 'thrilled': 5009, 'knock': 5010, 'necessary': 5011, 'threw': 5012, 'fact': 5013, 'factor': 5014, 'tried': 5015, 'contemptuous': 5016, 'drinking:': 5017, 'house': 5018, 'legoland': 5019, 'ing': 5020, 'richer': 5021, 'picnic': 5022, 'faded': 5023, 'dating': 5024, 'barney': 5025, 'wraps': 5026, 'rev': 5027, 'barbed': 5028, 'einstein': 5029, 'daddy': 5030, 'thanksgiving': 5031, 'stillwater:': 5032, 'gotta': 5033, \"fendin'\": 5034, 'reminds': 5035, 'using': 5036, 'raise': 5037, 'slab': 5038, 'fat_tony:': 5039, 'modest': 5040, 'troy': 5041, 'other_player:': 5042, 'self-made': 5043, 'thought_bubble_homer:': 5044, 'gun': 5045, 'gangrene': 5046, 'remember': 5047, 'proof': 5048, 'bowie': 5049, 'along': 5050, \"tellin'\": 5051, 'hoax': 5052, \"you'll\": 5053, 'ahem': 5054, 'wiping': 5055, 'kemi:': 5056, 'togetherness': 5057, 'acceptance': 5058, 'beefs': 5059, 'junkyard': 5060, 'snap': 5061, 'remorseful': 5062, 'leprechaun': 5063, 'gear-head': 5064, 'clientele': 5065, 'mcstagger': 5066, 'fifth': 5067, 'hawaii': 5068, 'fountain': 5069, 'doubt': 5070, 'dude': 5071, 'skins': 5072, 'heave-ho': 5073, 'pledge': 5074, 'than': 5075, 'hated': 5076, 'couple': 5077, 'either': 5078, 'odd': 5079, 'certain': 5080, 'sincere': 5081, 'mistakes': 5082, 'murdoch': 5083, 'mater': 5084, 'weak': 5085, 'consulting': 5086, 'damage': 5087, 'waterfront': 5088, 'underbridge': 5089, 'convinced': 5090, 'limited': 5091, 'act': 5092, 'trapped': 5093, 'bide': 5094, 'promotion': 5095, 'brace': 5096, 'discussing': 5097, 'hops': 5098, 'closing': 5099, 'badmouths': 5100, 'reckless': 5101, 'lis': 5102, 'sly': 5103, 'yells': 5104, 'crisis': 5105, 'awareness': 5106, 'pays': 5107, 'attitude': 5108, 'carpet': 5109, 'ivory': 5110, 'immiggants': 5111, 'north': 5112, 'demand': 5113, 'barn': 5114, 'entertainer': 5115, 'mulder': 5116, 'given': 5117, 'stares': 5118, 'expensive': 5119, 'roz:': 5120, 'terrified': 5121, 'gr-aargh': 5122, 'smurfs': 5123, \"gettin'\": 5124, 'lecture': 5125, 'passenger': 5126, 'sexton': 5127, 'eager': 5128, 'dance': 5129, 'cock': 5130, 'avenue': 5131, 'ungrateful': 5132, 'ron_howard:': 5133, 'envy-tations': 5134, 'forgiven': 5135, 'cauliflower': 5136, 'escort': 5137, 'michelin': 5138, 'superhero': 5139, 'alphabet': 5140, 'linda': 5141, 'oh-ho': 5142, 'cool': 5143, 'grunts': 5144, 'tester': 5145, 'species': 5146, 'dazed': 5147, 'toward': 5148, 'paints': 5149, 'provide': 5150, 'bookie': 5151, 'germs': 5152, 'super-tough': 5153, 'achem': 5154, 'luv': 5155, 'f-l-a-n-r-d-s': 5156, \"he'd\": 5157, \"i'm\": 5158, 'here': 5159, 'feelings': 5160, 'voters': 5161, 'hairs': 5162, 'drinker': 5163, 'meteor': 5164, 'wittgenstein': 5165, 'clams': 5166, \"men's\": 5167, 'richard': 5168, 'zinged': 5169, 'nominated': 5170, 'sink': 5171, 'knowing': 5172, 'pre-recorded': 5173, 'seconds': 5174, 'tap': 5175, 'level': 5176, 'cricket': 5177, 'tying': 5178, 'pope': 5179, 'form': 5180, 'parking': 5181, 'chuck': 5182, 'eyed': 5183, 'looked': 5184, 'throwing': 5185, \"high-falutin'\": 5186, 'bread': 5187, 'dying': 5188, 'stern': 5189, 'nursemaid': 5190, 'joining': 5191, 'fireworks': 5192, 'browns': 5193, 'become': 5194, 'standards': 5195, 'blamed': 5196, 'disgrace': 5197, 'top': 5198, 'smokes': 5199, 'suffering': 5200, 'unusual': 5201, 'flaming': 5202, 'wallet': 5203, 'vermont': 5204, 'mix': 5205, 'twice': 5206, 'splendid': 5207, 'take-back': 5208, 'exception:': 5209, 'guy': 5210, 'plants': 5211, \"beggin'\": 5212, 'frozen': 5213, 'funeral': 5214, 'sobs': 5215, 'drop-off': 5216, 'multiple': 5217, 'fumes': 5218, 'group': 5219, 'rage': 5220, 'witty': 5221, 'prefer': 5222, 'six': 5223, 'laugh': 5224, 'hmmm': 5225, 'field': 5226, 'standing': 5227, 'annie': 5228, 'young_moe:': 5229, 'frazier': 5230, 'painting': 5231, 'wish-meat': 5232, 'corn': 5233, 'menace': 5234, 'padres': 5235, 'capitol': 5236, 'die': 5237, 'yet': 5238, 'lots': 5239, 'encores': 5240, 'spend': 5241, 'shaking': 5242, 'television': 5243, 'computer': 5244, 'involving': 5245, 'hanging': 5246, 'priceless': 5247, 'surprise': 5248, 'housewife': 5249, 'foam': 5250, 'beached': 5251, \"murphy's\": 5252, 'y': 5253, 'toilet': 5254, 'szyslak': 5255, 'trash': 5256, 'pointedly': 5257, 'load': 5258, 'buds': 5259, 'room': 5260, 'series': 5261, 'clinton': 5262, 'problem': 5263, 'oblivious': 5264, 'appear': 5265, 'delicate': 5266, 'rumaki': 5267, 'music': 5268, 'pretty': 5269, 'little': 5270, 'blobbo': 5271, 'monday': 5272, 'certified': 5273, 'sperm': 5274, 'creates': 5275, 'legs': 5276, 'hourly': 5277, \"smackin'\": 5278, 'being': 5279, 'skoal': 5280, 'ways': 5281, 'dejected_barfly:': 5282, 'those': 5283, 'screws': 5284, 'deeply': 5285, 'keep': 5286, \"squeezin'\": 5287, 'jebediah': 5288, 'cupid': 5289, 'billiard': 5290, 'executive': 5291, 'family-owned': 5292, 'available': 5293, 'meal': 5294, 'frustrated': 5295, 'giggle': 5296, 'yes': 5297, 'tips': 5298, 'poisoning': 5299, 'ones': 5300, 'reconsidering': 5301, 'smitty:': 5302, 'beach': 5303, 'director': 5304, 'banquet': 5305, 'charlie': 5306, 'kinds': 5307, 'moe_recording:': 5308, 'mortgage': 5309, 'icelandic': 5310, \"messin'\": 5311, 'bronco': 5312, 'supreme': 5313, 'cherry': 5314, 'france': 5315, 'barber': 5316, 'hiding': 5317, 'surgeonnn': 5318, 'bail': 5319, 'disaster': 5320, 'impressed': 5321, 'friday': 5322, 'investment': 5323, 'perhaps': 5324, 'aunt': 5325, 'open-casket': 5326, 'they': 5327, 'retain': 5328, \"'roids\": 5329, 'experienced': 5330, 'woman_bystander:': 5331, 'squabbled': 5332, 'louie:': 5333, 'farthest': 5334, 'cost': 5335, 'marge': 5336, 'wally:': 5337, 'intelligent': 5338, 'selma': 5339, 'inches': 5340, 'belly-aching': 5341, 'renee': 5342, 'harrowing': 5343, 'celebrities': 5344, 'tears': 5345, 'swamp': 5346, 'sketch': 5347, 'kermit': 5348, 'rip': 5349, 'human': 5350, 'banquo': 5351, 'valuable': 5352, 'simpson': 5353, 'and/or': 5354, 'hems': 5355, 'hurts': 5356, 'sanctuary': 5357, 'founded': 5358, 'turlet': 5359, 'gordon': 5360, 'congratulations': 5361, 'bets': 5362, 'practice': 5363, 'drapes': 5364, \"askin'\": 5365, 'coy': 5366, 'change': 5367, 'museum': 5368, 'replace': 5369, 'support': 5370, 'feel': 5371, \"calf's\": 5372, 'espousing': 5373, \"how're\": 5374, 'slobs': 5375, 'company': 5376, 'suddenly': 5377, 'well-wisher': 5378, \"daughter's\": 5379, 'booth': 5380, 'singing': 5381, 'lushmore': 5382, 'fury': 5383, 'whether': 5384, 'marjorie': 5385, 'football': 5386, 'taxi': 5387, 'ford': 5388, 'loyal': 5389, 'finish': 5390, 'noble': 5391, 'adeleine': 5392, 'victory': 5393, 'jubilant': 5394, 'quero': 5395, 'vin': 5396, 'sub-monkeys': 5397, 'motel': 5398, 'jigger': 5399, 'night': 5400, 'melodramatic': 5401, 'official': 5402, 'combination': 5403, 'doreen': 5404, \"wallet's\": 5405, \"boy's\": 5406, 'dealer': 5407, 'worth': 5408, 'miles': 5409, 'summer': 5410, 'whispered': 5411, 'glass': 5412, 'dirt': 5413, 'ladies': 5414, 'mini-beret': 5415, 'cockroaches': 5416, 'kl5-4796': 5417, 'non-losers': 5418, 'yello': 5419, 'pushing': 5420, 'unless': 5421, 'judge_snyder:': 5422, \"mtv's\": 5423, 'chunk': 5424, 'reality': 5425, 'insured': 5426, 'haircuts': 5427, 'fdic': 5428, 'carve': 5429, 'sentimonies': 5430, 'represents': 5431, 'stevie': 5432, 'initially': 5433, 'asleep': 5434, 'all-star': 5435, 'bachelor': 5436, 'informant': 5437, 'three': 5438, 'jack_larson:': 5439, 'overstressed': 5440, 'ferry': 5441, 'defected': 5442, 'lifestyle': 5443, 'nerve': 5444, 'fleabag': 5445, \"duff's\": 5446, 'around': 5447, 'helllp': 5448, 'heatherton': 5449, 'problemo': 5450, 'grandmother': 5451, 'batmobile': 5452, 'ha-ha': 5453, 'radishes': 5454, 'attached': 5455, 'finger': 5456, 'kearney_zzyzwicz:': 5457, 'church': 5458, 'moron': 5459, 'committee': 5460, 'self-satisfied': 5461, 'derisive': 5462, 'stool': 5463, 'radio': 5464, 'bars': 5465, 'reasonable': 5466, 'ho': 5467, 'thawing': 5468, \"stinkin'\": 5469, 'personal': 5470, 'pants': 5471, 'actors': 5472, 'dice': 5473, 'dealt': 5474, 'brandy': 5475, 'figured': 5476, 'musical': 5477, 'loss': 5478, 'jeff_gordon:': 5479, 'actor': 5480, \"scammin'\": 5481, 'witches': 5482, 'bible': 5483, 'laughs': 5484, 'hah': 5485, \"mother's\": 5486, 'boxer:': 5487, 'baloney': 5488, 'dilemma': 5489, 'profiling': 5490, 'guinea': 5491, 'seven': 5492, 'disgracefully': 5493, 'reptile': 5494, 'talkers': 5495, 'streetlights': 5496, 'habitrail': 5497, 'neon': 5498, \"how'd\": 5499, \"tony's\": 5500, 'gone': 5501, 'worked': 5502, 'orphan': 5503, 'choices': 5504, 'stand': 5505, 'lovely': 5506, 'population': 5507, 'trenchant': 5508, \"one's\": 5509, 'widow': 5510, 'sucks': 5511, 'bones': 5512, 'monroe': 5513, 'toss': 5514, 'grey': 5515, 'intoxicated': 5516, 'earrings': 5517, 'dank': 5518, 'anywhere': 5519, \"department's\": 5520, '91': 5521, 'intoxicants': 5522, 'cleaner': 5523, 'remote': 5524, 'andrew': 5525, 'moe': 5526, \"bar's\": 5527, 'eco-fraud': 5528, 'ned_flanders:': 5529, 'hooky': 5530, 'unintelligent': 5531, 'bartending': 5532, 'sometimes': 5533, 'jay_leno:': 5534, 'businessman_#1:': 5535, 'slurred': 5536, 'mozzarella': 5537, 'short': 5538, 'grieving': 5539, 'dinner': 5540, 'souvenir': 5541, 'runt': 5542, 'flag': 5543, 'buddy': 5544, 'site': 5545, 'collateral': 5546, 'kicks': 5547, \"kiddin'\": 5548, 'womb': 5549, 'naval': 5550, 'stalin': 5551, 'chase': 5552, 'tokens': 5553, 'stairs': 5554, 'jerry': 5555, 'tries': 5556, 'smoothly': 5557, 'continuing': 5558, 'ignorant': 5559, 'grants': 5560, 'junior': 5561, 'amazed': 5562, 'protestantism': 5563, 'father': 5564, 'single': 5565, 'extreme': 5566, 'neighbors': 5567, 'leak': 5568, \"drexel's\": 5569, 'gulps': 5570, 'waylon': 5571, 'steal': 5572, 'stops': 5573, 'meant': 5574, 'cover': 5575, 'edge': 5576, '_montgomery_burns:': 5577, 'maximum': 5578, 'snake_jailbird:': 5579, 'donor': 5580, \"you've\": 5581, 'therapy': 5582, 'seek': 5583, 'giving': 5584, 'men': 5585, 'sieben-gruben': 5586, 'ugliness': 5587, 'alma': 5588, 'license': 5589, 'sixty': 5590, 'bees': 5591, 'whee': 5592, 'correcting': 5593, 'percent': 5594, 'corkscrew': 5595, 'living': 5596, 'disillusioned': 5597, 'some': 5598, 'insulin': 5599, 'absentmindedly': 5600, 'somebody': 5601, 'poor': 5602, 'shoo': 5603, 'taste': 5604, 'belong': 5605, 'dollars': 5606, 'crystal': 5607, 'sticker': 5608, 'lately': 5609, 'peach': 5610, 'infestation': 5611, 'brunswick': 5612, 'rasputin': 5613, 'sarcastic': 5614, \"burnin'\": 5615, 'sitar': 5616, 'fonzie': 5617, 'handling': 5618, 'hired': 5619, 'soaking': 5620, 'refill': 5621, 'losing': 5622, 'unsourced': 5623, 'ought': 5624, 'mustard': 5625, 'carmichael': 5626, 'unlucky': 5627, 'chin': 5628, \"money's\": 5629, 'gum': 5630, 'officer': 5631, 'ah-ha': 5632, 'purveyor': 5633, 'a-a-b-b-a': 5634, 'oils': 5635, 'gossipy': 5636, 'wonderful': 5637, 'pirate': 5638, \"number's\": 5639, 'brewed': 5640, 'chow': 5641, 'orders': 5642, \"we're\": 5643, 'maintenance': 5644, 'lose': 5645, 'pulitzer': 5646, 'pride': 5647, 'many': 5648, 'lard': 5649, 'pernt': 5650, 'store': 5651, 'ehhhhhhhhh': 5652, 'unfortunately': 5653, 'flustered': 5654, 'mull': 5655, 'fourth': 5656, 'sideshow_bob:': 5657, 'try': 5658, 'sweeter': 5659, 'patriotic': 5660, 'donut': 5661, 'lap': 5662, 'ball-sized': 5663, 'mmmm': 5664, 'term': 5665, 'cents': 5666, 'abercrombie': 5667, 'waking-up': 5668, 'arabs': 5669, 'rat': 5670, 'share': 5671, 'incredulous': 5672, 'ralphie': 5673, 'society': 5674, 'aerospace': 5675, 'hexa-': 5676, 'earpiece': 5677, 'resenting': 5678, 'kako:': 5679, 'ehhh': 5680, 'wobble': 5681, 'jackass': 5682, 'end': 5683, 'grimly': 5684, 'voted': 5685, 'chug': 5686, 'semi-imported': 5687, 'cars': 5688, 'know': 5689, 'ruin': 5690, 'chips': 5691, 'gifts': 5692, \"smokin'_joe_frazier:\": 5693, 'honey': 5694, 'drank': 5695, 'liar': 5696, 'boston': 5697, 'gibson': 5698, 'rude': 5699, 'bugging': 5700, 'speaking': 5701, 'assassination': 5702, 'young_barfly:': 5703, 'brainiac': 5704, 'charlie:': 5705, 'shelbyville': 5706, 'happy': 5707, 'presumir': 5708, 'americans': 5709, 'bartholomé:': 5710, 'busiest': 5711, 'fl': 5712, 'understood': 5713, 'suspended': 5714, 'passports': 5715, 'less': 5716, 'th-th-th-the': 5717, 'yee-ha': 5718, 'bottoms': 5719, 'fingers': 5720, 'showered': 5721, 'manager': 5722, 'statistician': 5723, 'yep': 5724, 'appendectomy': 5725, 'nick': 5726, 'madison': 5727, 'spinning': 5728, 'accusing': 5729, 'stupid': 5730, 'bliss': 5731, 'degradation': 5732, \"must've\": 5733, 'shall': 5734, 'medicine': 5735, 'jump': 5736, \"y'know\": 5737, 'cozies': 5738, 'matter': 5739, 'item': 5740, 'swooning': 5741, 'blinded': 5742, 'dark': 5743, 'farewell': 5744, 'see': 5745, 'breathless': 5746, 'count': 5747, 'yo': 5748, 'seen': 5749, 'square': 5750, 'uh-huh': 5751, 'punch': 5752, 'fainted': 5753, 'exhibit': 5754, 'apu': 5755, 'jailbird': 5756, 'absorbent': 5757, \"edna's\": 5758, 'alcoholic': 5759, 'night-crawlers': 5760, 'grain': 5761, 'army': 5762, 'arrange': 5763, 'devils:': 5764, 'life-extension': 5765, 'papa': 5766, 'camp': 5767, '-ry': 5768, 'placing': 5769, 'eh': 5770, 'buttocks': 5771, 'dreamily': 5772, 'resist': 5773, \"i-i'll\": 5774, 'griffith': 5775, 'exit': 5776, 'nuclear': 5777, 'insurance': 5778, 'brag': 5779, 'sobriety': 5780, 'suing': 5781, 'other_book_club_member:': 5782, 'drummer': 5783, 'tapestry': 5784, 'apartment': 5785, 'use': 5786, 'spamming': 5787, 'sam:': 5788, \"b-52's:\": 5789, \"it's\": 5790, 'mexican': 5791, 'democracy': 5792, '50-60': 5793, 'grubby': 5794, 'allowed': 5795, 'ballot': 5796, 'sets': 5797, 'koi': 5798, 'introduce': 5799, 'thoughtful': 5800, 'complaint': 5801, 'pigs': 5802, 'awesome': 5803, 'everyday': 5804, 'cannot': 5805, 'four-star': 5806, 'storms': 5807, 'suspicious': 5808, 'lied': 5809, 'mayan': 5810, 'nasty': 5811, 'club': 5812, 'principles': 5813, 'boxing_announcer:': 5814, 'nerd': 5815, \"wasn't\": 5816, \"'pu\": 5817, 'crowd:': 5818, 'careful': 5819, 'deli': 5820, 'kitchen': 5821, 'apart': 5822, 'clears': 5823, 'enabling': 5824, 'medieval': 5825, 'supports': 5826, 'racially-diverse': 5827, 'fastest': 5828, 'attractive': 5829, 'enough': 5830, 'proud': 5831, 'kegs': 5832, 'bachelorette': 5833, 'plucked': 5834, 'collapse': 5835, 'despite': 5836, 'frankly': 5837, 'balls': 5838, 'cards': 5839, 'rhode': 5840, 'choice:': 5841, 'contemporary': 5842, 'hall': 5843, 'natural': 5844, 'gesture': 5845, 'drag': 5846, 'wash': 5847, 'dumbass': 5848, 'spit-backs': 5849, 'faulkner': 5850, 'book_club_member:': 5851, '<left_paren>': 5852, 'displeased': 5853, 'bill_james:': 5854, 'susie-q': 5855, 'reluctantly': 5856, 'gasps': 5857, 'fit': 5858, 'repairman': 5859, 'stinky': 5860, 'their': 5861, 'dae': 5862, 'online': 5863, 'janette': 5864, 'coming': 5865, 'ingested': 5866, 'fire': 5867, 'principal': 5868, 'straining': 5869, 'looting': 5870, 'greedy': 5871, 'plain': 5872, 'kang:': 5873, 'spine': 5874, \"i'd\": 5875, 'spotting': 5876, 'eaters': 5877, 'thirty-nine': 5878, 'tee': 5879, 'tipsy': 5880, 'searching': 5881, 'kazoo': 5882, 'coward': 5883, 'arise': 5884, 'albeit': 5885, 'quick-like': 5886, \"mo'\": 5887, \"rustlin'\": 5888, 'billboard': 5889, 'appealing': 5890, 'tell': 5891, 'tv_wife:': 5892, 'lame': 5893, 'sotto': 5894, 'thanking': 5895, 'cheerleaders:': 5896, 'rookie': 5897, 'happened': 5898, 'handwriting': 5899, 'outstanding': 5900, 'awkwardly': 5901, 'king': 5902, 'rewound': 5903, 'hosting': 5904, 'celebrity': 5905, 'owes': 5906, '250': 5907, 'short_man:': 5908, 'lugs': 5909, 'gin-slingers': 5910, 'offensive': 5911, 'someday': 5912, 'dennis_kucinich:': 5913, 'depending': 5914, 'town': 5915, 'patting': 5916, 'shout': 5917, 'breakdown': 5918, 'adventure': 5919, 'even': 5920, 'desire': 5921, 'piano': 5922, 'twenty-six': 5923, 'senators:': 5924, 'tracks': 5925, 'poker': 5926, 'triangle': 5927, 'week': 5928, 'hardy': 5929, 'understand': 5930, 'bye': 5931, \"someone's\": 5932, 'plant': 5933, 'society_matron:': 5934, 'pantry': 5935, 'picked': 5936, 'real': 5937, 'hold': 5938, 'pre-game': 5939, 'hollywood': 5940, 'okay': 5941, 'flatly': 5942, 'hot-rod': 5943, \"mcstagger's\": 5944, 'villanova': 5945, 'unusually': 5946, 'grandé': 5947, \"marge's\": 5948, 'handed': 5949, 'backgammon': 5950, 'checking': 5951, 'rutabaga': 5952, 'brain-switching': 5953, 'ooo': 5954, 'bought': 5955, 'remodel': 5956, 'broke': 5957, 'competitive': 5958, 'rolled': 5959, 'large': 5960, 'herself': 5961, \"bashir's\": 5962, 'befriend': 5963, 'modern': 5964, 'toxins': 5965, 'yours': 5966, 'krusty': 5967, 'key': 5968, \"g'ahead\": 5969, 'brave': 5970, 'higher': 5971, 'blimp': 5972, 'trolls': 5973, 'moe-ron': 5974, \"tree's\": 5975, 'vance': 5976, 'equivalent': 5977, 'chew': 5978, 'glen': 5979, 'consider': 5980, 'fox': 5981, 'advance': 5982, 'plaintive': 5983, 'zero': 5984, 'said:': 5985, 'bulletin': 5986, '50%': 5987, 'divorced': 5988, 'd': 5989, 'nervously': 5990, 'alec_baldwin:': 5991, 'turns': 5992, 'shape': 5993, 'elite': 5994, 'sneeze': 5995, 'very': 5996, 'notch': 5997, 'boys': 5998, 'quick': 5999, \"shan't\": 6000, 'twentieth': 6001, 'man:': 6002, 'typing': 6003, 'audience': 6004, 'emotional': 6005, 'foundation': 6006, 'ga': 6007, 'glasses': 6008, \"choosin'\": 6009, 'lump': 6010, 'signal': 6011, 'nigel_bakerbutcher:': 6012, 'liven': 6013, 'spied': 6014, 'lay': 6015, 'donuts': 6016, 'handle': 6017, 'bleacher': 6018, 'vigilante': 6019, 'arrested:': 6020, 'extra': 6021, 'invulnerable': 6022, 'stu': 6023, 'equal': 6024, 'gary:': 6025, 'shush': 6026, 'hanh': 6027, 'dials': 6028, 'geyser': 6029, 'competing': 6030, 'be': 6031, 'fella': 6032, 'krusty_the_clown:': 6033, 'compliments': 6034, 'puzzle': 6035, 'phone': 6036, 'jacks': 6037, 'frankie': 6038, 'dad': 6039, 'worthless': 6040, 'greystash': 6041, 'nameless': 6042, 'barkeeps': 6043, \"fallin'\": 6044, 'dressing': 6045, 'physical': 6046, 'cheer': 6047, 'dump': 6048, 'start': 6049, 'behind': 6050, 'shag': 6051, 'dollar': 6052, 'tabooger': 6053, 'wowww': 6054, 'slit': 6055, \"i-i'm\": 6056, 'coincidentally': 6057, 'wolverines': 6058, 'grudgingly': 6059, 'soup': 6060, 'chanting': 6061, 'shark': 6062, 'yelp': 6063, 'sue': 6064, 'expense': 6065, 'expression': 6066, 'lisa': 6067, '1-800-555-hugs': 6068, 'verdict': 6069, 'morlocks': 6070, 'flown': 6071, \"swishifyin'\": 6072, \"nixon's\": 6073, 'accent': 6074, 'viva': 6075, 'weeks': 6076, 'faint': 6077, 'moved': 6078, 'magic': 6079, 'tearfully': 6080, 'unearth': 6081, 'aah': 6082, 'carl': 6083, 'dipping': 6084, 'african': 6085, 'wildest': 6086, 'troll': 6087, 'tavern': 6088, 'chicks': 6089, 'fast': 6090, 'menacing': 6091, 'california': 6092, 'effervescence': 6093, 'completely': 6094, 'news': 6095, 'authorized': 6096, 'pasta': 6097, 'ohh': 6098, 'impress': 6099, 'mirror': 6100, 'charm': 6101, \"time's\": 6102, 'two': 6103, 'naked': 6104, 'carny:': 6105, 'tired': 6106, 'brother-in-law': 6107, 'errrrrrr': 6108, 'sympathetic': 6109, \"valentine's\": 6110, 'served': 6111, \"barney's\": 6112, 'pizzicato': 6113, 'getting': 6114, 'frosty': 6115, 'distributor': 6116, 'intriguing': 6117, 'capuchin': 6118, 'tenor:': 6119, 'whirlybird': 6120, 'selection': 6121, 'faith': 6122, 'pained': 6123, 'pint': 6124, 'peace': 6125, 'calls': 6126, 'wrecking': 6127, 'fevered': 6128, 'tense': 6129, 'stock': 6130, 'bidet': 6131, 'winces': 6132, 'zoomed': 6133, 'lend': 6134, 'rub-a-dub': 6135, \"tap-pullin'\": 6136, 'con': 6137, 'ow': 6138, 'trying': 6139, 'hearts': 6140, 'blow': 6141, 'eat': 6142, 'greatly': 6143, 'crowd': 6144, 'poet': 6145, 'booze-bags': 6146, 'actress': 6147, \"we'll\": 6148, 'sniffles': 6149, 'moments': 6150, 'make': 6151, 'treat': 6152, 'crossed': 6153, 'lurks': 6154, 'dads': 6155, 'man': 6156, 'fist': 6157, 'shopping': 6158, 'director:': 6159, 'straight': 6160, 'flame': 6161, 'astrid': 6162, 'nature': 6163, 'dyspeptic': 6164, 'novelty': 6165, 'sells': 6166, 'him': 6167, 'due': 6168, 'brought': 6169, 'hawking:': 6170, \"'cept\": 6171, 'harm': 6172, 'reed': 6173, 'attractive_woman_#1:': 6174, 'options': 6175, 'heh': 6176, 'relieved': 6177, 'explaining': 6178, 'string': 6179, \"stealin'\": 6180, 'scientists': 6181, 'brain': 6182, 'supermarket': 6183, 'teacher': 6184, 'cheryl': 6185, \"linin'\": 6186, 'pickle': 6187, 'yellow-belly': 6188, 'insults': 6189, 'disturbing': 6190, 'ziffcorp': 6191, 'frogs': 6192, 'appreciated': 6193, 'tenuous': 6194, 'quarterback': 6195, 'crack': 6196, 'specialists': 6197, 'else': 6198, 'prison': 6199, 'decent': 6200, 'connection': 6201, 'fringe': 6202, \"disrobin'\": 6203, 'mill': 6204, 'thoughts': 6205, 'warning': 6206, 'replaced': 6207, 'pit': 6208, 'self': 6209, 'shaved': 6210, 'rented': 6211, 'scram': 6212, 'figures': 6213, 'ask': 6214, 'snout': 6215, 'yuh-huh': 6216, 'gay': 6217, 'grateful': 6218, 'sneaky': 6219, \"couldn't\": 6220, 'tobacky': 6221, 'something': 6222, 'ura': 6223, 'feet': 6224, 'desperate': 6225, 'without': 6226, 'feeling': 6227, 'parked': 6228, 'donate': 6229, 'murdered': 6230, 'inspection': 6231, 'mexican_duffman:': 6232, 'flower': 6233, 'dog': 6234, 'moonnnnnnnn': 6235, 'terrific': 6236, 'stengel': 6237, 'package': 6238, 'putty': 6239, 'earth': 6240, 'groans': 6241, 'done': 6242, 'stickers': 6243, 'windex': 6244, 'beeps': 6245, 'inexorable': 6246, 'senator': 6247, 'x-men': 6248, \"stayin'\": 6249, 'sudden': 6250, 'upon': 6251, 'ayyy': 6252, 'frink-y': 6253, 'occurs': 6254, 'warily': 6255, 'boneheaded': 6256, 'result': 6257, 'dammit': 6258, 'found': 6259, 'cow': 6260, 'joe': 6261, 'dum-dum': 6262, 'paper': 6263, 'touch': 6264, 'mid-conversation': 6265, 'grave': 6266, 'sports_announcer:': 6267, 'edner': 6268, 'team': 6269, 'schedule': 6270, 'sweetie': 6271, 'maiden': 6272, 'chain': 6273, 'egg': 6274, 'peaked': 6275, 'eight-year-old': 6276, 'tubman': 6277, 'situation': 6278, 'panicked': 6279, 'joke': 6280, 'prayers': 6281, 'drinking': 6282, 'day': 6283, \"playin'\": 6284, 'thought': 6285, 'pouring': 6286, 'iran': 6287, 'smug': 6288, 'knocked': 6289, 'mt': 6290, 'watt': 6291, 'hollowed-out': 6292, 'asks': 6293, \"jimbo's_dad:\": 6294, 'ago': 6295, \"eatin'\": 6296, 'duffman:': 6297, 'log': 6298, 'awfully': 6299, 'drives': 6300, 'hose': 6301, 'wondering': 6302, 'rugged': 6303, 'scary': 6304, 'michael': 6305, 'dough': 6306, 'lennyy': 6307, 'de': 6308, 'coms': 6309, 'triumphantly': 6310, 'promise': 6311, 'sixty-five': 6312, 'noosey': 6313, 'gheet': 6314, 'laws': 6315, 'sincerely': 6316, \"s'okay\": 6317, 'curds': 6318, 'spit': 6319, 'handsome': 6320, 'invisible': 6321, 'halfway': 6322, 'works': 6323, 'gas': 6324, 'happen': 6325, 'microwave': 6326, 'thirty-three': 6327, 'hurting': 6328, 'hate': 6329, 'klingon': 6330, 'jubilation': 6331, 'cigarette': 6332, 'champignons': 6333, 'record': 6334, 'cab': 6335, 'chug-monkeys': 6336, 'rash': 6337, 'barstools': 6338, \"showin'\": 6339, 'press': 6340, 'stinger': 6341, 'poulet': 6342, 'sizes': 6343, 'cursed': 6344, 'failed': 6345, 'terrible': 6346, 'thought_bubble_lenny:': 6347, 'afloat': 6348, 'rueful': 6349, 'talkative': 6350, 'how': 6351, 'breaks': 6352, 'punk': 6353, 'window': 6354, \"there's\": 6355, 'creature': 6356, 'mess': 6357, 'whatchamacallit': 6358, 'whiny': 6359, 'peppy': 6360, 'marvin': 6361, 'tom': 6362, 'er': 6363, 'muscles': 6364, 'ourselves': 6365, 'whining': 6366, 'soaps': 6367, 'hand': 6368, 'ashtray': 6369, 'christmas': 6370, 'food': 6371, 'stewart': 6372, 'hibachi': 6373, 'tomato': 6374, 'proposing': 6375, \"s'pose\": 6376, 'cause': 6377, 'mistake': 6378, 'wing': 6379, 'bleak': 6380, 'scatter': 6381, 'mid-seventies': 6382, 'build': 6383, 'between': 6384, \"y'see\": 6385, 'elizabeth': 6386, 'weather': 6387, 'rumor': 6388, 'awake': 6389, 'watered-down': 6390, 'money': 6391, 'crowds': 6392, 'thrust': 6393, 'freed': 6394, 'reviews': 6395, 'juice': 6396, 'mindless': 6397, 'launch': 6398, 'every': 6399, 'honored': 6400, 'evening': 6401, 'ripping': 6402, 'propose': 6403, 'jackpot-thief': 6404, 'pridesters:': 6405, 'captain': 6406, 'domed': 6407, 'hundreds': 6408, 'familiar': 6409, 'decide': 6410, 'rag': 6411, 'grade': 6412, 'unexplained': 6413, 'coherent': 6414, 'specializes': 6415, 'piling': 6416, 'hilarious': 6417, 'access': 6418, 'times': 6419, 'intrigued': 6420, 'poured': 6421, 'dateline:': 6422, 'activity': 6423, 'jukebox_record:': 6424, 'insightful': 6425, 'kneeling': 6426, 'affection': 6427, 'skills': 6428, 'mail': 6429, 'toys': 6430, 'show': 6431, \"here's\": 6432, 'full-time': 6433, 'quebec': 6434, 'believe': 6435, 'pad': 6436, 'yourselves': 6437, 'south': 6438, 'misfire': 6439, 'diets': 6440, 'underpants': 6441, 'eighty-three': 6442, 'maybe': 6443, 'destroyed': 6444, 'fish': 6445, 'delete': 6446, 'settles': 6447, 'design': 6448, 'voice_on_transmitter:': 6449, 'woo': 6450, 'amnesia': 6451, 'clearing': 6452, \"what's\": 6453, \"liftin'\": 6454, 'unhook': 6455, 'bow': 6456, 'lizard': 6457, 'bowling': 6458, 'appearance-altering': 6459, 'till': 6460, 'installed': 6461, 'germans': 6462, 'charges': 6463, 'period': 6464, 'washed': 6465, 'paintings': 6466, 'sure': 6467, \"buyin'\": 6468, 'permanent': 6469, 'organ': 6470, 'jay:': 6471, 'squadron': 6472, 'harder': 6473, 'alcohol': 6474, 'enveloped': 6475, 'shill': 6476, 'offa': 6477, 'billion': 6478, 'slick': 6479, 'sale': 6480, 'cattle': 6481, 'closes': 6482, 'crumble': 6483, 'majority': 6484, 'relaxing': 6485, 'system': 6486, 'conditioning': 6487, 'excuses': 6488, 'credit': 6489, 'smithers': 6490, \"fun's\": 6491, 'there': 6492, 'intruding': 6493, 'pall': 6494, 'teenage_barney:': 6495, 'tuna': 6496, 'williams': 6497, 'loudly': 6498, 'doom': 6499, 'price': 6500, 'wudgy': 6501, 'bid': 6502, 'palmerston': 6503, \"challengin'\": 6504, 'candy': 6505, 'lear': 6506, 'briefly': 6507, 'giggles': 6508, 'ninth': 6509, 'abcs': 6510, 'dumbest': 6511, 'alky': 6512, 'dejected': 6513, 'louisiana': 6514, 'x': 6515, 'traitor': 6516, 'nail': 6517, 'barney-shaped_form:': 6518, 'lumpa': 6519, 'defensive': 6520, 'oww': 6521, \"makin'\": 6522, 'solo': 6523, 'wire': 6524, 'contemplated': 6525, \"pressure's\": 6526, 'bake': 6527, 'cobra': 6528, 'hell': 6529, 'crapmore': 6530, 'sketching': 6531, 'name:': 6532, 'city': 6533, 'yourse': 6534, 'wasted': 6535, 'spy': 6536, 'majesty': 6537, 'soot': 6538, 'parenting': 6539, 'purse': 6540, \"shootin'\": 6541, 'cliff': 6542, 'winnings': 6543, 'tv_father:': 6544, 'childless': 6545, \"spiffin'\": 6546, 'names': 6547, 'foodie': 6548, 'cheesecake': 6549, 'circus': 6550, 'tomatoes': 6551, 'ebullient': 6552, 'except': 6553, 'sticking': 6554, 'crowned': 6555, 'playoff': 6556, 'railroads': 6557, 'bitterly': 6558, 'ma': 6559, 'instrument': 6560, 'poem': 6561, 'guys': 6562, 'kodos:': 6563, 'itself': 6564, 'himself': 6565, 'wasting': 6566, 'blubberino': 6567, 'hooked': 6568, 'beans': 6569, 'illustrates': 6570, 'following': 6571, 'beanbag': 6572, 'horror': 6573, 'medical': 6574, 'hilton': 6575, 'pizza': 6576, 'kinda': 6577, 'intimacy': 6578, 'out': 6579, 'palm': 6580, 'mis-statement': 6581, 'dame': 6582, 'based': 6583, 'shhh': 6584, 'adult_bart:': 6585, 'emergency': 6586, 'absolutely': 6587, 'snapping': 6588, 'rain': 6589, 'village': 6590, 'per': 6591, 'realize': 6592, 'startup': 6593, 'lib': 6594, 'clapping': 6595, 'charter': 6596, 'terrace': 6597, 'brockelstein': 6598, 'grace': 6599, \"tinklin'\": 6600, 'dennis': 6601, 'presidential': 6602, 'crony': 6603, 'symphonies': 6604, 'media': 6605, 'cecil_terwilliger:': 6606, 'gets': 6607, 'roll': 6608, 'bindle': 6609, 'filth': 6610, 'mirthless': 6611, 'rancid': 6612, 'idioms': 6613, 'playing': 6614, 'thoughtless': 6615, 'deliberate': 6616, 'admirer': 6617, 'ivanna': 6618, 'conspiratorial': 6619, 'navy': 6620, 'sledge-hammer': 6621, 'any': 6622, 'eaten': 6623, 'front': 6624, \"'n'\": 6625, 'number': 6626, 'de-scramble': 6627, 'sistine': 6628, 'eighty-one': 6629, 'says': 6630, 'sucking': 6631, 'ordered': 6632, 'crazy': 6633, 'caholic': 6634, 'al_gore:': 6635, 'voice': 6636, 'sing-song': 6637, 'jobs': 6638, 'plastered': 6639, 'reads': 6640, 'dunno': 6641, 'flourish': 6642, 'drinks': 6643, 'crestfallen': 6644, 'seat': 6645, 'brakes': 6646, 'female_inspector:': 6647, 'rainier_wolfcastle:': 6648, 'buried': 6649, 'anti-lock': 6650, 'bonfire': 6651, 'narrator:': 6652, 'new': 6653, 'daniel': 6654, 'hello': 6655, 'irs': 6656, 'too': 6657, 'apulina': 6658, 'waist': 6659, \"breakin'\": 6660, 'besides': 6661, 'failure': 6662, 'wussy': 6663, 'indigenous': 6664, 'ummmmmmmmm': 6665, 'frescas': 6666, \"year's\": 6667, 'skinheads': 6668, 'churchy': 6669, 'own': 6670, 'cutting': 6671, 'bull': 6672, 'return': 6673, 'steampunk': 6674, 'examples': 6675, 'helen': 6676, 'bleeding': 6677, 'feedbag': 6678, 'signed': 6679, 'hear': 6680, 'must': 6681, 'lord': 6682, 'delicately': 6683, 'severe': 6684, 'violations': 6685, 'cheap': 6686, 'refresh': 6687, 'hooters': 6688, 'beady': 6689, 'johnny': 6690, 'kirk_voice_milhouse:': 6691, 'recall': 6692, \"stabbin'\": 6693, 'geez': 6694, '<semicolon>': 6695, 'ideal': 6696, 'refreshing': 6697, 'alpha-crow': 6698, 'steinbrenner': 6699, 'artie_ziff:': 6700, 'settled': 6701, 'patty': 6702, 'poin-dexterous': 6703, 'fine': 6704, 'dreams': 6705, 'alls': 6706, 'trustworthy': 6707, 'infatuation': 6708, 'polite': 6709, 'voodoo': 6710, 'almond': 6711, 'trusted': 6712, 'shack': 6713, 'truck_driver:': 6714, 'faceful': 6715, \"hadn't\": 6716, 'needy': 6717, 'jasper_beardly:': 6718, 'feed': 6719, 'shard': 6720, 'child': 6721, 'marriage': 6722, 'gore': 6723, 'sunk': 6724, 'moon-bounce': 6725, 'hurry': 6726, 'inquiries': 6727, 'growing': 6728, 'stirrers': 6729, 'sloppy': 6730, 'contractors': 6731, 'mice': 6732, 'blank': 6733, 'legal': 6734, 'sacrilicious': 6735, 'time': 6736, 'western': 6737, 'so-ng': 6738, 'sad': 6739, 'calculate': 6740, 'finishing': 6741, 'yew': 6742, 'lobster-politans': 6743, 'hispanic_crowd:': 6744, 'eating': 6745, 'strain': 6746, 'indicates': 6747, 'song': 6748, 'fellas': 6749, 'breath': 6750, 'way:': 6751, 'flowers': 6752, 'larry': 6753, 'mouths': 6754, 'sass': 6755, 'world-class': 6756, 'obvious': 6757, 'sixteen': 6758, \"spyin'\": 6759, 'brow': 6760, 'test-lady': 6761, 'jack': 6762, 'urine': 6763, 'ads': 6764, 'pews': 6765, 'commission': 6766, 'portfolium': 6767, 'detective': 6768, 'grabs': 6769, 'newsies': 6770, 'generous': 6771, 'handing': 6772, \"raggin'\": 6773, 'spoken': 6774, 'full-blooded': 6775, 'elves:': 6776, 'windelle': 6777, 'sob': 6778}\n"
+     ]
+    }
+   ],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "# Preprocess Training, Validation, and Testing Data\n",
+    "helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Check Point\n",
+    "This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "import helper\n",
+    "import numpy as np\n",
+    "import problem_unittests as tests\n",
+    "\n",
+    "int_text, vocab_to_int, int_to_vocab, token_dict = helper.load_preprocess()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Build the Neural Network\n",
+    "You'll build the components necessary to build a RNN by implementing the following functions below:\n",
+    "- get_inputs\n",
+    "- get_init_cell\n",
+    "- get_embed\n",
+    "- build_rnn\n",
+    "- build_nn\n",
+    "- get_batches\n",
+    "\n",
+    "### Check the Version of TensorFlow and Access to GPU"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "TensorFlow Version: 1.3.0\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/opt/conda/lib/python3.6/site-packages/ipykernel_launcher.py:14: UserWarning: No GPU found. Please use a GPU to train your neural network.\n",
+      "  \n"
+     ]
+    }
+   ],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "from distutils.version import LooseVersion\n",
+    "import warnings\n",
+    "import tensorflow as tf\n",
+    "\n",
+    "# Check TensorFlow Version\n",
+    "assert LooseVersion(tf.__version__) >= LooseVersion('1.3'), 'Please use TensorFlow version 1.3 or newer'\n",
+    "print('TensorFlow Version: {}'.format(tf.__version__))\n",
+    "\n",
+    "# Check for a GPU\n",
+    "if not tf.test.gpu_device_name():\n",
+    "    warnings.warn('No GPU found. Please use a GPU to train your neural network.')\n",
+    "else:\n",
+    "    print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Input\n",
+    "Implement the `get_inputs()` function to create TF Placeholders for the Neural Network.  It should create the following placeholders:\n",
+    "- Input text placeholder named \"input\" using the [TF Placeholder](https://www.tensorflow.org/api_docs/python/tf/placeholder) `name` parameter.\n",
+    "- Targets placeholder\n",
+    "- Learning Rate placeholder\n",
+    "\n",
+    "Return the placeholders in the following tuple `(Input, Targets, LearningRate)`"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def get_inputs():\n",
+    "    \"\"\"\n",
+    "    Create TF Placeholders for input, targets, and learning rate.\n",
+    "    :return: Tuple (input, targets, learning rate)\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    input_ = tf.placeholder(tf.int32, [None, None], name='input')\n",
+    "    targets_ = tf.placeholder(tf.int32, [None, None], name='taregts')\n",
+    "    learning_rate_ = tf.placeholder(tf.float32, name='learning_rate')\n",
+    "    \n",
+    "    return input_, targets_, learning_rate_\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_get_inputs(get_inputs)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Build RNN Cell and Initialize\n",
+    "Stack one or more [`BasicLSTMCells`](https://www.tensorflow.org/api_docs/python/tf/contrib/rnn/BasicLSTMCell) in a [`MultiRNNCell`](https://www.tensorflow.org/api_docs/python/tf/contrib/rnn/MultiRNNCell).\n",
+    "- The Rnn size should be set using `rnn_size`\n",
+    "- Initalize Cell State using the MultiRNNCell's [`zero_state()`](https://www.tensorflow.org/api_docs/python/tf/contrib/rnn/MultiRNNCell#zero_state) function\n",
+    "    - Apply the name \"initial_state\" to the initial state using [`tf.identity()`](https://www.tensorflow.org/api_docs/python/tf/identity)\n",
+    "\n",
+    "Return the cell and initial state in the following tuple `(Cell, InitialState)`"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def get_init_cell(batch_size, rnn_size):\n",
+    "    \"\"\"\n",
+    "    Create an RNN Cell and initialize it.\n",
+    "    :param batch_size: Size of batches\n",
+    "    :param rnn_size: Size of RNNs\n",
+    "    :return: Tuple (cell, initialize state)\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    layers = 1\n",
+    "    lstm=[]\n",
+    "    \n",
+    "    for i in range(layers):\n",
+    "        lstm.append(tf.contrib.rnn.BasicLSTMCell(rnn_size))\n",
+    "    cell = tf.contrib.rnn.MultiRNNCell(lstm)\n",
+    "    initial_state = cell.zero_state(batch_size, tf.float32)\n",
+    "    initial_state = tf.identity(initial_state,'initial_state')\n",
+    "    return cell, initial_state\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_get_init_cell(get_init_cell)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Word Embedding\n",
+    "Apply embedding to `input_data` using TensorFlow.  Return the embedded sequence."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "27\n",
+      "256\n",
+      "Tensor(\"Placeholder:0\", shape=(50, 5), dtype=int32)\n",
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def get_embed(input_data, vocab_size, embed_dim):\n",
+    "    \"\"\"\n",
+    "    Create embedding for <input_data>.\n",
+    "    :param input_data: TF placeholder for text input.\n",
+    "    :param vocab_size: Number of words in vocabulary.\n",
+    "    :param embed_dim: Number of embedding dimensions\n",
+    "    :return: Embedded input.\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    print(vocab_size)\n",
+    "    print(embed_dim)\n",
+    "    print(input_data)\n",
+    "    embedding = tf.Variable(tf.random_uniform((vocab_size, embed_dim), -1, 1))\n",
+    "    embed = tf.nn.embedding_lookup(embedding, input_data)\n",
+    "    return embed\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_get_embed(get_embed)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Build RNN\n",
+    "You created a RNN Cell in the `get_init_cell()` function.  Time to use the cell to create a RNN.\n",
+    "- Build the RNN using the [`tf.nn.dynamic_rnn()`](https://www.tensorflow.org/api_docs/python/tf/nn/dynamic_rnn)\n",
+    " - Apply the name \"final_state\" to the final state using [`tf.identity()`](https://www.tensorflow.org/api_docs/python/tf/identity)\n",
+    "\n",
+    "Return the outputs and final_state state in the following tuple `(Outputs, FinalState)` "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 12,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tensor(\"rnn/transpose:0\", shape=(?, ?, 256), dtype=float32)\n",
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def build_rnn(cell, inputs):\n",
+    "    \"\"\"\n",
+    "    Create a RNN using a RNN Cell\n",
+    "    :param cell: RNN Cell\n",
+    "    :param inputs: Input text data\n",
+    "    :return: Tuple (Outputs, Final State)\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    outputs, final_state = tf.nn.dynamic_rnn(cell, inputs, dtype = tf.float32)\n",
+    "    final_state = tf.identity(final_state, \"final_state\")\n",
+    "    print(outputs)\n",
+    "    return outputs, final_state\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_build_rnn(build_rnn)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Build the Neural Network\n",
+    "Apply the functions you implemented above to:\n",
+    "- Apply embedding to `input_data` using your `get_embed(input_data, vocab_size, embed_dim)` function.\n",
+    "- Build RNN using `cell` and your `build_rnn(cell, inputs)` function.\n",
+    "- Apply a fully connected layer with a linear activation and `vocab_size` as the number of outputs.\n",
+    "\n",
+    "Return the logits and final state in the following tuple (Logits, FinalState) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "27\n",
+      "1\n",
+      "Tensor(\"Placeholder:0\", shape=(128, 5), dtype=int32)\n",
+      "Tensor(\"fully_connected/BiasAdd:0\", shape=(128, 5, 27), dtype=float32)\n",
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def build_nn(cell, rnn_size, input_data, vocab_size, embed_dim):\n",
+    "    \"\"\"\n",
+    "    Build part of the neural network\n",
+    "    :param cell: RNN cell\n",
+    "    :param rnn_size: Size of rnns\n",
+    "    :param input_data: Input data\n",
+    "    :param vocab_size: Vocabulary size\n",
+    "    :param embed_dim: Number of embedding dimensions\n",
+    "    :return: Tuple (Logits, FinalState)\n",
+    "    \"\"\"\n",
+    "    embed_ = get_embed(input_data, vocab_size, embed_dim=1)\n",
+    "    outputs_, final_state_ = build_rnn(cell, embed_)\n",
+    "    logits = tf.contrib.layers.fully_connected(outputs_, vocab_size, activation_fn=None)\n",
+    "    print(logits)\n",
+    "    return logits, final_state_\n",
+    "\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_build_nn(build_nn)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Batches\n",
+    "Implement `get_batches` to create batches of input and targets using `int_text`.  The batches should be a Numpy array with the shape `(number of batches, 2, batch size, sequence length)`. Each batch contains two elements:\n",
+    "- The first element is a single batch of **input** with the shape `[batch size, sequence length]`\n",
+    "- The second element is a single batch of **targets** with the shape `[batch size, sequence length]`\n",
+    "\n",
+    "If you can't fill the last batch with enough data, drop the last batch.\n",
+    "\n",
+    "For example, `get_batches([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 3, 2)` would return a Numpy array of the following:\n",
+    "```\n",
+    "[\n",
+    "  # First Batch\n",
+    "  [\n",
+    "    # Batch of Input\n",
+    "    [[ 1  2], [ 7  8], [13 14]]\n",
+    "    # Batch of targets\n",
+    "    [[ 2  3], [ 8  9], [14 15]]\n",
+    "  ]\n",
+    "\n",
+    "  # Second Batch\n",
+    "  [\n",
+    "    # Batch of Input\n",
+    "    [[ 3  4], [ 9 10], [15 16]]\n",
+    "    # Batch of targets\n",
+    "    [[ 4  5], [10 11], [16 17]]\n",
+    "  ]\n",
+    "\n",
+    "  # Third Batch\n",
+    "  [\n",
+    "    # Batch of Input\n",
+    "    [[ 5  6], [11 12], [17 18]]\n",
+    "    # Batch of targets\n",
+    "    [[ 6  7], [12 13], [18  1]]\n",
+    "  ]\n",
+    "]\n",
+    "```\n",
+    "\n",
+    "Notice that the last target value in the last batch is the first input value of the first batch. In this case, `1`. This is a common technique used when creating sequence batches, although it is rather unintuitive."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 14,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "128\n",
+      "5\n",
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def get_batches(int_text, batch_size, seq_length):\n",
+    "    \"\"\"\n",
+    "    Return batches of input and target\n",
+    "    :param int_text: Text with the words replaced by their ids\n",
+    "    :param batch_size: The size of batch\n",
+    "    :param seq_length: The length of sequence\n",
+    "    :return: Batches as a Numpy array\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    n_batches = int(len(int_text) / (batch_size * seq_length))\n",
+    "    input_data = np.array(int_text[: n_batches * batch_size * seq_length])\n",
+    "    targets_data = np.array(int_text[1: n_batches * batch_size * seq_length + 1])\n",
+    "    targets_data[-1] = input_data[0]\n",
+    "    \n",
+    "    input_batches = np.split(input_data.reshape(batch_size, -1), n_batches, 1)\n",
+    "    targets_batches = np.split(targets_data.reshape(batch_size, -1), n_batches, 1)\n",
+    "\n",
+    "    return np.array(list(zip(input_batches, targets_batches)))\n",
+    "\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_get_batches(get_batches)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Neural Network Training\n",
+    "### Hyperparameters\n",
+    "Tune the following parameters:\n",
+    "\n",
+    "- Set `num_epochs` to the number of epochs.\n",
+    "- Set `batch_size` to the batch size.\n",
+    "- Set `rnn_size` to the size of the RNNs.\n",
+    "- Set `embed_dim` to the size of the embedding.\n",
+    "- Set `seq_length` to the length of sequence.\n",
+    "- Set `learning_rate` to the learning rate.\n",
+    "- Set `show_every_n_batches` to the number of batches the neural network should print progress."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Number of Epochs\n",
+    "num_epochs = 300\n",
+    "# Batch Size\n",
+    "batch_size = 256\n",
+    "# RNN Size\n",
+    "rnn_size = 256\n",
+    "# Embedding Dimension Size\n",
+    "embed_dim = 64\n",
+    "# Sequence Length\n",
+    "seq_length = 15\n",
+    "# Learning Rate\n",
+    "learning_rate = 0.01\n",
+    "# Show stats for every n number of batches\n",
+    "show_every_n_batches = 20\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "save_dir = './save'"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Build the Graph\n",
+    "Build the graph using the neural network you implemented."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "from tensorflow.contrib import seq2seq\n",
+    "\n",
+    "train_graph = tf.Graph()\n",
+    "with train_graph.as_default():\n",
+    "    vocab_size = len(int_to_vocab)\n",
+    "    input_text, targets, lr = get_inputs()\n",
+    "    input_data_shape = tf.shape(input_text)\n",
+    "    cell, initial_state = get_init_cell(input_data_shape[0], rnn_size)\n",
+    "    logits, final_state = build_nn(cell, rnn_size, input_text, vocab_size, embed_dim)\n",
+    "\n",
+    "    # Probabilities for generating words\n",
+    "    probs = tf.nn.softmax(logits, name='probs')\n",
+    "\n",
+    "    # Loss function\n",
+    "    cost = seq2seq.sequence_loss(\n",
+    "        logits,\n",
+    "        targets,\n",
+    "        tf.ones([input_data_shape[0], input_data_shape[1]]))\n",
+    "\n",
+    "    # Optimizer\n",
+    "    optimizer = tf.train.AdamOptimizer(lr)\n",
+    "\n",
+    "    # Gradient Clipping\n",
+    "    gradients = optimizer.compute_gradients(cost)\n",
+    "    capped_gradients = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gradients if grad is not None]\n",
+    "    train_op = optimizer.apply_gradients(capped_gradients)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Train\n",
+    "Train the neural network on the preprocessed data.  If you have a hard time getting a good loss, check the [forums](https://discussions.udacity.com/) to see if anyone is having the same problem."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch   0 Batch    0/17   train_loss = 8.822\n",
+      "Epoch   1 Batch    3/17   train_loss = 6.336\n",
+      "Epoch   2 Batch    6/17   train_loss = 6.128\n",
+      "Epoch   3 Batch    9/17   train_loss = 5.974\n",
+      "Epoch   4 Batch   12/17   train_loss = 5.752\n",
+      "Epoch   5 Batch   15/17   train_loss = 5.504\n",
+      "Epoch   7 Batch    1/17   train_loss = 5.244\n",
+      "Epoch   8 Batch    4/17   train_loss = 5.136\n",
+      "Epoch   9 Batch    7/17   train_loss = 4.969\n",
+      "Epoch  10 Batch   10/17   train_loss = 4.886\n",
+      "Epoch  11 Batch   13/17   train_loss = 4.744\n",
+      "Epoch  12 Batch   16/17   train_loss = 4.631\n",
+      "Epoch  14 Batch    2/17   train_loss = 4.550\n",
+      "Epoch  15 Batch    5/17   train_loss = 4.536\n",
+      "Epoch  16 Batch    8/17   train_loss = 4.357\n",
+      "Epoch  17 Batch   11/17   train_loss = 4.255\n",
+      "Epoch  18 Batch   14/17   train_loss = 4.216\n",
+      "Epoch  20 Batch    0/17   train_loss = 4.187\n",
+      "Epoch  21 Batch    3/17   train_loss = 4.143\n",
+      "Epoch  22 Batch    6/17   train_loss = 4.038\n",
+      "Epoch  23 Batch    9/17   train_loss = 3.977\n",
+      "Epoch  24 Batch   12/17   train_loss = 3.860\n",
+      "Epoch  25 Batch   15/17   train_loss = 3.868\n",
+      "Epoch  27 Batch    1/17   train_loss = 3.758\n",
+      "Epoch  28 Batch    4/17   train_loss = 3.758\n",
+      "Epoch  29 Batch    7/17   train_loss = 3.658\n",
+      "Epoch  30 Batch   10/17   train_loss = 3.638\n",
+      "Epoch  31 Batch   13/17   train_loss = 3.539\n",
+      "Epoch  32 Batch   16/17   train_loss = 3.495\n",
+      "Epoch  34 Batch    2/17   train_loss = 3.486\n",
+      "Epoch  35 Batch    5/17   train_loss = 3.480\n",
+      "Epoch  36 Batch    8/17   train_loss = 3.379\n",
+      "Epoch  37 Batch   11/17   train_loss = 3.248\n",
+      "Epoch  38 Batch   14/17   train_loss = 3.277\n",
+      "Epoch  40 Batch    0/17   train_loss = 3.290\n",
+      "Epoch  41 Batch    3/17   train_loss = 3.246\n",
+      "Epoch  42 Batch    6/17   train_loss = 3.225\n",
+      "Epoch  43 Batch    9/17   train_loss = 3.161\n",
+      "Epoch  44 Batch   12/17   train_loss = 2.999\n",
+      "Epoch  45 Batch   15/17   train_loss = 3.042\n",
+      "Epoch  47 Batch    1/17   train_loss = 2.995\n",
+      "Epoch  48 Batch    4/17   train_loss = 3.005\n",
+      "Epoch  49 Batch    7/17   train_loss = 2.919\n",
+      "Epoch  50 Batch   10/17   train_loss = 2.985\n",
+      "Epoch  51 Batch   13/17   train_loss = 2.984\n",
+      "Epoch  52 Batch   16/17   train_loss = 3.038\n",
+      "Epoch  54 Batch    2/17   train_loss = 2.972\n",
+      "Epoch  55 Batch    5/17   train_loss = 2.886\n",
+      "Epoch  56 Batch    8/17   train_loss = 2.895\n",
+      "Epoch  57 Batch   11/17   train_loss = 2.888\n",
+      "Epoch  58 Batch   14/17   train_loss = 2.896\n",
+      "Epoch  60 Batch    0/17   train_loss = 2.762\n",
+      "Epoch  61 Batch    3/17   train_loss = 2.654\n",
+      "Epoch  62 Batch    6/17   train_loss = 2.614\n",
+      "Epoch  63 Batch    9/17   train_loss = 2.580\n",
+      "Epoch  64 Batch   12/17   train_loss = 2.508\n",
+      "Epoch  65 Batch   15/17   train_loss = 2.549\n",
+      "Epoch  67 Batch    1/17   train_loss = 2.549\n",
+      "Epoch  68 Batch    4/17   train_loss = 2.602\n",
+      "Epoch  69 Batch    7/17   train_loss = 2.579\n",
+      "Epoch  70 Batch   10/17   train_loss = 2.602\n",
+      "Epoch  71 Batch   13/17   train_loss = 2.501\n",
+      "Epoch  72 Batch   16/17   train_loss = 2.440\n",
+      "Epoch  74 Batch    2/17   train_loss = 2.351\n",
+      "Epoch  75 Batch    5/17   train_loss = 2.367\n",
+      "Epoch  76 Batch    8/17   train_loss = 2.320\n",
+      "Epoch  77 Batch   11/17   train_loss = 2.222\n",
+      "Epoch  78 Batch   14/17   train_loss = 2.248\n",
+      "Epoch  80 Batch    0/17   train_loss = 2.253\n",
+      "Epoch  81 Batch    3/17   train_loss = 2.235\n",
+      "Epoch  82 Batch    6/17   train_loss = 2.248\n",
+      "Epoch  83 Batch    9/17   train_loss = 2.247\n",
+      "Epoch  84 Batch   12/17   train_loss = 2.169\n",
+      "Epoch  85 Batch   15/17   train_loss = 2.204\n",
+      "Epoch  87 Batch    1/17   train_loss = 2.169\n",
+      "Epoch  88 Batch    4/17   train_loss = 2.128\n",
+      "Epoch  89 Batch    7/17   train_loss = 2.061\n",
+      "Epoch  90 Batch   10/17   train_loss = 2.086\n",
+      "Epoch  91 Batch   13/17   train_loss = 2.038\n",
+      "Epoch  92 Batch   16/17   train_loss = 2.042\n",
+      "Epoch  94 Batch    2/17   train_loss = 2.012\n",
+      "Epoch  95 Batch    5/17   train_loss = 2.045\n",
+      "Epoch  96 Batch    8/17   train_loss = 2.022\n",
+      "Epoch  97 Batch   11/17   train_loss = 1.946\n",
+      "Epoch  98 Batch   14/17   train_loss = 2.031\n",
+      "Epoch 100 Batch    0/17   train_loss = 2.018\n",
+      "Epoch 101 Batch    3/17   train_loss = 1.949\n",
+      "Epoch 102 Batch    6/17   train_loss = 2.032\n",
+      "Epoch 103 Batch    9/17   train_loss = 2.090\n",
+      "Epoch 104 Batch   12/17   train_loss = 2.014\n",
+      "Epoch 105 Batch   15/17   train_loss = 2.045\n",
+      "Epoch 107 Batch    1/17   train_loss = 2.015\n",
+      "Epoch 108 Batch    4/17   train_loss = 1.961\n",
+      "Epoch 109 Batch    7/17   train_loss = 1.897\n",
+      "Epoch 110 Batch   10/17   train_loss = 1.855\n",
+      "Epoch 111 Batch   13/17   train_loss = 1.814\n",
+      "Epoch 112 Batch   16/17   train_loss = 1.812\n",
+      "Epoch 114 Batch    2/17   train_loss = 1.770\n",
+      "Epoch 115 Batch    5/17   train_loss = 1.767\n",
+      "Epoch 116 Batch    8/17   train_loss = 1.751\n",
+      "Epoch 117 Batch   11/17   train_loss = 1.666\n",
+      "Epoch 118 Batch   14/17   train_loss = 1.711\n",
+      "Epoch 120 Batch    0/17   train_loss = 1.664\n",
+      "Epoch 121 Batch    3/17   train_loss = 1.664\n",
+      "Epoch 122 Batch    6/17   train_loss = 1.680\n",
+      "Epoch 123 Batch    9/17   train_loss = 1.666\n",
+      "Epoch 124 Batch   12/17   train_loss = 1.611\n",
+      "Epoch 125 Batch   15/17   train_loss = 1.674\n",
+      "Epoch 127 Batch    1/17   train_loss = 1.687\n",
+      "Epoch 128 Batch    4/17   train_loss = 1.646\n",
+      "Epoch 129 Batch    7/17   train_loss = 1.609\n",
+      "Epoch 130 Batch   10/17   train_loss = 1.652\n",
+      "Epoch 131 Batch   13/17   train_loss = 1.624\n",
+      "Epoch 132 Batch   16/17   train_loss = 1.640\n",
+      "Epoch 134 Batch    2/17   train_loss = 1.622\n",
+      "Epoch 135 Batch    5/17   train_loss = 1.650\n",
+      "Epoch 136 Batch    8/17   train_loss = 1.672\n",
+      "Epoch 137 Batch   11/17   train_loss = 1.584\n",
+      "Epoch 138 Batch   14/17   train_loss = 1.662\n",
+      "Epoch 140 Batch    0/17   train_loss = 1.641\n",
+      "Epoch 141 Batch    3/17   train_loss = 1.633\n",
+      "Epoch 142 Batch    6/17   train_loss = 1.636\n",
+      "Epoch 143 Batch    9/17   train_loss = 1.621\n",
+      "Epoch 144 Batch   12/17   train_loss = 1.616\n",
+      "Epoch 145 Batch   15/17   train_loss = 1.657\n",
+      "Epoch 147 Batch    1/17   train_loss = 1.650\n",
+      "Epoch 148 Batch    4/17   train_loss = 1.679\n",
+      "Epoch 149 Batch    7/17   train_loss = 1.580\n",
+      "Epoch 150 Batch   10/17   train_loss = 1.541\n",
+      "Epoch 151 Batch   13/17   train_loss = 1.648\n",
+      "Epoch 152 Batch   16/17   train_loss = 1.668\n",
+      "Epoch 154 Batch    2/17   train_loss = 1.548\n",
+      "Epoch 155 Batch    5/17   train_loss = 1.567\n",
+      "Epoch 156 Batch    8/17   train_loss = 1.750\n",
+      "Epoch 157 Batch   11/17   train_loss = 1.712\n",
+      "Epoch 158 Batch   14/17   train_loss = 1.678\n",
+      "Epoch 160 Batch    0/17   train_loss = 1.522\n",
+      "Epoch 161 Batch    3/17   train_loss = 1.531\n",
+      "Epoch 162 Batch    6/17   train_loss = 1.541\n",
+      "Epoch 163 Batch    9/17   train_loss = 1.516\n",
+      "Epoch 164 Batch   12/17   train_loss = 1.459\n",
+      "Epoch 165 Batch   15/17   train_loss = 1.472\n",
+      "Epoch 167 Batch    1/17   train_loss = 1.444\n",
+      "Epoch 168 Batch    4/17   train_loss = 1.399\n",
+      "Epoch 169 Batch    7/17   train_loss = 1.334\n",
+      "Epoch 170 Batch   10/17   train_loss = 1.332\n",
+      "Epoch 171 Batch   13/17   train_loss = 1.307\n",
+      "Epoch 172 Batch   16/17   train_loss = 1.292\n",
+      "Epoch 174 Batch    2/17   train_loss = 1.274\n",
+      "Epoch 175 Batch    5/17   train_loss = 1.255\n",
+      "Epoch 176 Batch    8/17   train_loss = 1.288\n",
+      "Epoch 177 Batch   11/17   train_loss = 1.233\n",
+      "Epoch 178 Batch   14/17   train_loss = 1.271\n",
+      "Epoch 180 Batch    0/17   train_loss = 1.235\n",
+      "Epoch 181 Batch    3/17   train_loss = 1.251\n",
+      "Epoch 182 Batch    6/17   train_loss = 1.245\n",
+      "Epoch 183 Batch    9/17   train_loss = 1.255\n",
+      "Epoch 184 Batch   12/17   train_loss = 1.249\n",
+      "Epoch 185 Batch   15/17   train_loss = 1.284\n",
+      "Epoch 187 Batch    1/17   train_loss = 1.274\n",
+      "Epoch 188 Batch    4/17   train_loss = 1.298\n",
+      "Epoch 189 Batch    7/17   train_loss = 1.257\n",
+      "Epoch 190 Batch   10/17   train_loss = 1.246\n",
+      "Epoch 191 Batch   13/17   train_loss = 1.265\n",
+      "Epoch 192 Batch   16/17   train_loss = 1.294\n",
+      "Epoch 194 Batch    2/17   train_loss = 1.261\n",
+      "Epoch 195 Batch    5/17   train_loss = 1.267\n",
+      "Epoch 196 Batch    8/17   train_loss = 1.320\n",
+      "Epoch 197 Batch   11/17   train_loss = 1.239\n",
+      "Epoch 198 Batch   14/17   train_loss = 1.272\n",
+      "Epoch 200 Batch    0/17   train_loss = 1.258\n",
+      "Epoch 201 Batch    3/17   train_loss = 1.272\n",
+      "Epoch 202 Batch    6/17   train_loss = 1.261\n",
+      "Epoch 203 Batch    9/17   train_loss = 1.278\n",
+      "Epoch 204 Batch   12/17   train_loss = 1.309\n",
+      "Epoch 205 Batch   15/17   train_loss = 1.329\n",
+      "Epoch 207 Batch    1/17   train_loss = 1.262\n",
+      "Epoch 208 Batch    4/17   train_loss = 1.327\n",
+      "Epoch 209 Batch    7/17   train_loss = 1.375\n",
+      "Epoch 210 Batch   10/17   train_loss = 1.347\n",
+      "Epoch 211 Batch   13/17   train_loss = 1.341\n",
+      "Epoch 212 Batch   16/17   train_loss = 1.378\n",
+      "Epoch 214 Batch    2/17   train_loss = 1.469\n",
+      "Epoch 215 Batch    5/17   train_loss = 1.414\n",
+      "Epoch 216 Batch    8/17   train_loss = 1.355\n",
+      "Epoch 217 Batch   11/17   train_loss = 1.295\n",
+      "Epoch 218 Batch   14/17   train_loss = 1.406\n",
+      "Epoch 220 Batch    0/17   train_loss = 1.347\n",
+      "Epoch 221 Batch    3/17   train_loss = 1.317\n",
+      "Epoch 222 Batch    6/17   train_loss = 1.226\n",
+      "Epoch 223 Batch    9/17   train_loss = 1.196\n",
+      "Epoch 224 Batch   12/17   train_loss = 1.166\n",
+      "Epoch 225 Batch   15/17   train_loss = 1.166\n",
+      "Epoch 227 Batch    1/17   train_loss = 1.131\n",
+      "Epoch 228 Batch    4/17   train_loss = 1.124\n",
+      "Epoch 229 Batch    7/17   train_loss = 1.081\n",
+      "Epoch 230 Batch   10/17   train_loss = 1.068\n",
+      "Epoch 231 Batch   13/17   train_loss = 1.064\n",
+      "Epoch 232 Batch   16/17   train_loss = 1.065\n",
+      "Epoch 234 Batch    2/17   train_loss = 1.052\n",
+      "Epoch 235 Batch    5/17   train_loss = 1.018\n",
+      "Epoch 236 Batch    8/17   train_loss = 1.033\n",
+      "Epoch 237 Batch   11/17   train_loss = 1.000\n",
+      "Epoch 238 Batch   14/17   train_loss = 1.049\n",
+      "Epoch 240 Batch    0/17   train_loss = 1.012\n",
+      "Epoch 241 Batch    3/17   train_loss = 1.034\n",
+      "Epoch 242 Batch    6/17   train_loss = 1.039\n",
+      "Epoch 243 Batch    9/17   train_loss = 1.054\n",
+      "Epoch 244 Batch   12/17   train_loss = 1.046\n",
+      "Epoch 245 Batch   15/17   train_loss = 1.081\n",
+      "Epoch 247 Batch    1/17   train_loss = 1.081\n",
+      "Epoch 248 Batch    4/17   train_loss = 1.088\n",
+      "Epoch 249 Batch    7/17   train_loss = 1.078\n",
+      "Epoch 250 Batch   10/17   train_loss = 1.056\n",
+      "Epoch 251 Batch   13/17   train_loss = 1.068\n",
+      "Epoch 252 Batch   16/17   train_loss = 1.060\n",
+      "Epoch 254 Batch    2/17   train_loss = 1.057\n",
+      "Epoch 255 Batch    5/17   train_loss = 1.015\n",
+      "Epoch 256 Batch    8/17   train_loss = 1.055\n",
+      "Epoch 257 Batch   11/17   train_loss = 1.016\n",
+      "Epoch 258 Batch   14/17   train_loss = 1.065\n",
+      "Epoch 260 Batch    0/17   train_loss = 1.003\n",
+      "Epoch 261 Batch    3/17   train_loss = 1.034\n",
+      "Epoch 262 Batch    6/17   train_loss = 1.060\n",
+      "Epoch 263 Batch    9/17   train_loss = 1.055\n",
+      "Epoch 264 Batch   12/17   train_loss = 1.044\n",
+      "Epoch 265 Batch   15/17   train_loss = 1.096\n",
+      "Epoch 267 Batch    1/17   train_loss = 1.101\n",
+      "Epoch 268 Batch    4/17   train_loss = 1.089\n",
+      "Epoch 269 Batch    7/17   train_loss = 1.081\n",
+      "Epoch 270 Batch   10/17   train_loss = 1.105\n",
+      "Epoch 271 Batch   13/17   train_loss = 1.107\n",
+      "Epoch 272 Batch   16/17   train_loss = 1.085\n",
+      "Epoch 274 Batch    2/17   train_loss = 1.122\n",
+      "Epoch 275 Batch    5/17   train_loss = 1.119\n",
+      "Epoch 276 Batch    8/17   train_loss = 1.123\n",
+      "Epoch 277 Batch   11/17   train_loss = 1.081\n",
+      "Epoch 278 Batch   14/17   train_loss = 1.187\n",
+      "Epoch 280 Batch    0/17   train_loss = 1.160\n",
+      "Epoch 281 Batch    3/17   train_loss = 1.132\n",
+      "Epoch 282 Batch    6/17   train_loss = 1.156\n",
+      "Epoch 283 Batch    9/17   train_loss = 1.224\n",
+      "Epoch 284 Batch   12/17   train_loss = 1.232\n",
+      "Epoch 285 Batch   15/17   train_loss = 1.163\n",
+      "Epoch 287 Batch    1/17   train_loss = 1.164\n",
+      "Epoch 288 Batch    4/17   train_loss = 1.187\n",
+      "Epoch 289 Batch    7/17   train_loss = 1.178\n",
+      "Epoch 290 Batch   10/17   train_loss = 1.120\n",
+      "Epoch 291 Batch   13/17   train_loss = 1.086\n",
+      "Epoch 292 Batch   16/17   train_loss = 1.094\n",
+      "Epoch 294 Batch    2/17   train_loss = 1.094\n",
+      "Epoch 295 Batch    5/17   train_loss = 1.027\n",
+      "Epoch 296 Batch    8/17   train_loss = 1.025\n",
+      "Epoch 297 Batch   11/17   train_loss = 0.953\n",
+      "Epoch 298 Batch   14/17   train_loss = 0.983\n",
+      "Model Trained and Saved\n"
+     ]
+    }
+   ],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "batches = get_batches(int_text, batch_size, seq_length)\n",
+    "\n",
+    "with tf.Session(graph=train_graph) as sess:\n",
+    "    sess.run(tf.global_variables_initializer())\n",
+    "\n",
+    "    for epoch_i in range(num_epochs):\n",
+    "        state = sess.run(initial_state, {input_text: batches[0][0]})\n",
+    "\n",
+    "        for batch_i, (x, y) in enumerate(batches):\n",
+    "            feed = {\n",
+    "                input_text: x,\n",
+    "                targets: y,\n",
+    "                initial_state: state,\n",
+    "                lr: learning_rate}\n",
+    "            train_loss, state, _ = sess.run([cost, final_state, train_op], feed)\n",
+    "\n",
+    "            # Show every <show_every_n_batches> batches\n",
+    "            if (epoch_i * len(batches) + batch_i) % show_every_n_batches == 0:\n",
+    "                print('Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(\n",
+    "                    epoch_i,\n",
+    "                    batch_i,\n",
+    "                    len(batches),\n",
+    "                    train_loss))\n",
+    "\n",
+    "    # Save Model\n",
+    "    saver = tf.train.Saver()\n",
+    "    saver.save(sess, save_dir)\n",
+    "    print('Model Trained and Saved')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Save Parameters\n",
+    "Save `seq_length` and `save_dir` for generating a new TV script."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "# Save parameters for checkpoint\n",
+    "helper.save_params((seq_length, save_dir))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Checkpoint"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL\n",
+    "\"\"\"\n",
+    "import tensorflow as tf\n",
+    "import numpy as np\n",
+    "import helper\n",
+    "import problem_unittests as tests\n",
+    "\n",
+    "_, vocab_to_int, int_to_vocab, token_dict = helper.load_preprocess()\n",
+    "seq_length, load_dir = helper.load_params()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Implement Generate Functions\n",
+    "### Get Tensors\n",
+    "Get tensors from `loaded_graph` using the function [`get_tensor_by_name()`](https://www.tensorflow.org/api_docs/python/tf/Graph#get_tensor_by_name).  Get the tensors using the following names:\n",
+    "- \"input:0\"\n",
+    "- \"initial_state:0\"\n",
+    "- \"final_state:0\"\n",
+    "- \"probs:0\"\n",
+    "\n",
+    "Return the tensors in the following tuple `(InputTensor, InitialStateTensor, FinalStateTensor, ProbsTensor)` "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def get_tensors(loaded_graph):\n",
+    "    \"\"\"\n",
+    "    Get input, initial state, final state, and probabilities tensor from <loaded_graph>\n",
+    "    :param loaded_graph: TensorFlow graph loaded from file\n",
+    "    :return: Tuple (InputTensor, InitialStateTensor, FinalStateTensor, ProbsTensor)\n",
+    "    \"\"\"\n",
+    "    InputTensor = loaded_graph.get_tensor_by_name(\"input:0\")\n",
+    "    InitialStateTensor = loaded_graph.get_tensor_by_name(\"initial_state:0\")\n",
+    "    FinalStateTensor = loaded_graph.get_tensor_by_name(\"final_state:0\")\n",
+    "    ProbsTensor = loaded_graph.get_tensor_by_name(\"probs:0\")\n",
+    "    return(InputTensor, InitialStateTensor, FinalStateTensor, ProbsTensor)\n",
+    "    # TODO: Implement Function\n",
+    "\n",
+    "\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_get_tensors(get_tensors)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Choose Word\n",
+    "Implement the `pick_word()` function to select the next word using `probabilities`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Tests Passed\n"
+     ]
+    }
+   ],
+   "source": [
+    "def pick_word(probabilities, int_to_vocab):\n",
+    "    \"\"\"\n",
+    "    Pick the next word in the generated text\n",
+    "    :param probabilities: Probabilites of the next word\n",
+    "    :param int_to_vocab: Dictionary of word ids as the keys and words as the values\n",
+    "    :return: String of the predicted word\n",
+    "    \"\"\"\n",
+    "    # TODO: Implement Function\n",
+    "    return np.random.choice(list(int_to_vocab.values()), 1, p=probabilities)[0]\n",
+    "   \n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "tests.test_pick_word(pick_word)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Generate TV Script\n",
+    "This will generate the TV script for you.  Set `gen_length` to the length of TV script you want to generate."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "INFO:tensorflow:Restoring parameters from ./save\n",
+      "moe_szyslak:(too big one) ow. you're so. it's one to the friend.\n",
+      "homer_simpson: don't my give of?\n",
+      "chief_wiggum: uh, i dr no to the there?\n",
+      "chief_wiggum:(into mic) oh, you're been the parking. 'cause. homer, you're like to play for an krusty who\". but you me. who do, call and and.\"\n",
+      "\n",
+      "moe_szyslak: what i need it sound this moe's gonna you with get are on because they am?\n",
+      "lenny_leonard: yeah, no could chief that squeezin' the crime bar for the big moments?\n",
+      "moe_szyslak: oh! nah. what's want a bad in job, no you him looks to any here.\n",
+      "lenny_leonard: moe, show was.. i what told out in take.\n",
+      "lenny_leonard: eh, i'm just a right news to a ancestors and me intriguing.\n",
+      "moe_szyslak: it's up you unbelievable.\n",
+      "moe_szyslak: i'll worry, i lost. moe we're krusty, moe. he this have it seem.\n",
+      "homer_simpson: oh, we if i a hand..\n"
+     ]
+    }
+   ],
+   "source": [
+    "gen_length = 200\n",
+    "# homer_simpson, moe_szyslak, or Barney_Gumble\n",
+    "prime_word = 'moe_szyslak'\n",
+    "\n",
+    "\"\"\"\n",
+    "DON'T MODIFY ANYTHING IN THIS CELL THAT IS BELOW THIS LINE\n",
+    "\"\"\"\n",
+    "loaded_graph = tf.Graph()\n",
+    "with tf.Session(graph=loaded_graph) as sess:\n",
+    "    # Load saved model\n",
+    "    loader = tf.train.import_meta_graph(load_dir + '.meta')\n",
+    "    loader.restore(sess, load_dir)\n",
+    "\n",
+    "    # Get Tensors from loaded model\n",
+    "    input_text, initial_state, final_state, probs = get_tensors(loaded_graph)\n",
+    "\n",
+    "    # Sentences generation setup\n",
+    "    gen_sentences = [prime_word + ':']\n",
+    "    prev_state = sess.run(initial_state, {input_text: np.array([[1]])})\n",
+    "\n",
+    "    # Generate sentences\n",
+    "    for n in range(gen_length):\n",
+    "        # Dynamic Input\n",
+    "        dyn_input = [[vocab_to_int[word] for word in gen_sentences[-seq_length:]]]\n",
+    "        dyn_seq_length = len(dyn_input[0])\n",
+    "\n",
+    "        # Get Prediction\n",
+    "        probabilities, prev_state = sess.run(\n",
+    "            [probs, final_state],\n",
+    "            {input_text: dyn_input, initial_state: prev_state})\n",
+    "        \n",
+    "        pred_word = pick_word(probabilities[0][dyn_seq_length-1], int_to_vocab)\n",
+    "\n",
+    "        gen_sentences.append(pred_word)\n",
+    "    \n",
+    "    # Remove tokens\n",
+    "    tv_script = ' '.join(gen_sentences)\n",
+    "    for key, token in token_dict.items():\n",
+    "        ending = ' ' if key in ['\\n', '(', '\"'] else ''\n",
+    "        tv_script = tv_script.replace(' ' + token.lower(), key)\n",
+    "    tv_script = tv_script.replace('\\n ', '\\n')\n",
+    "    tv_script = tv_script.replace('( ', '(')\n",
+    "        \n",
+    "    print(tv_script)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# The TV Script is Nonsensical\n",
+    "It's ok if the TV script doesn't make any sense.  We trained on less than a megabyte of text.  In order to get good results, you'll have to use a smaller vocabulary or get more data.  Luckily there's more data!  As we mentioned in the beggining of this project, this is a subset of [another dataset](https://www.kaggle.com/wcukierski/the-simpsons-by-the-data).  We didn't have you train on all the data, because that would take too long.  However, you are free to train your neural network on all the data.  After you complete the project, of course.\n",
+    "# Submitting This Project\n",
+    "When submitting this project, make sure to run all the cells before saving the notebook. Save the notebook file as \"dlnd_tv_script_generation.ipynb\" and save it as a HTML file under \"File\" -> \"Download as\". Include the \"helper.py\" and \"problem_unittests.py\" files in your submission."
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.3"
+  },
+  "widgets": {
+   "state": {},
+   "version": "1.1.2"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 1
+}
